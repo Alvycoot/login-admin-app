@@ -1,0 +1,328 @@
+<title>Núcleo de datos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Share+Tech+Mono&family=Noto+Sans+JP:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: dark;
+  --void:#07070D; --panel:#0F0F1A; --panel-2:#14142A; --ink:#E9E6F2; --ink-soft:#9A95B8; --grid:rgba(2,215,242,.06);
+  --yellow:#FCEE0A; --cyan:#02D7F2; --red:#FF2A6D; --violet:#6C2BD9;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--void); color:var(--ink); font-family:"Chakra Petch","Segoe UI",sans-serif; padding-inline:20px; padding-block:36px;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px); background-size:32px 32px; }
+main { max-width:1200px; margin-inline:auto; display:flex; flex-direction:column; gap:26px; }
+.hud { display:flex; flex-wrap:wrap; gap:8px 18px; font-family:"Share Tech Mono",monospace; font-size:12px; letter-spacing:.08em; color:var(--cyan); text-transform:uppercase; }
+.hud span b { color:var(--yellow); font-weight:400; }
+.hud .blink { color:var(--red); }
+.title-wrap { position:relative; }
+h1 { margin:4px 0 0; font-family:"Chakra Petch",sans-serif; font-weight:700; font-size:clamp(36px,6.4vw,68px); line-height:1; letter-spacing:.02em; text-transform:uppercase; color:var(--yellow);
+  text-shadow:3px 0 0 var(--red), -2px 0 0 var(--cyan); text-wrap:balance; }
+.jp { font-family:"Noto Sans JP",sans-serif; font-weight:700; color:var(--red); font-size:15px; letter-spacing:.3em; margin-top:8px; }
+.sub { margin:10px 0 0; color:var(--ink-soft); font-size:16px; max-width:62ch; line-height:1.55; }
+.sub strong { color:var(--cyan); font-weight:600; }
+.op { align-self:flex-start; display:inline-flex; flex-wrap:wrap; align-items:stretch; font-family:"Share Tech Mono",monospace; font-size:13px; text-transform:uppercase; letter-spacing:.06em;
+  clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%); background:var(--yellow); color:#07070D; }
+.op span { padding:8px 14px; }
+.op span + span { background:#07070D; color:var(--yellow); border:1px solid var(--yellow); }
+figure { margin:0; position:relative; background:var(--panel); border:1px solid rgba(2,215,242,.35); padding:18px 18px 14px;
+  clip-path:polygon(0 0,calc(100% - 22px) 0,100% 22px,100% 100%,22px 100%,0 calc(100% - 22px)); }
+figure::after { content:""; position:absolute; inset:0; pointer-events:none; background:repeating-linear-gradient(0deg,rgba(255,255,255,.028) 0 1px,transparent 1px 3px); }
+.scroll { overflow-x:auto; }
+svg.er { display:block; width:1160px; max-width:none; height:auto; }
+figcaption { margin-top:12px; font-family:"Share Tech Mono",monospace; font-size:12.5px; color:var(--ink-soft); line-height:1.6; max-width:80ch; }
+figcaption b { color:var(--yellow); font-weight:400; }
+.zone-box { fill:rgba(20,20,42,.55); stroke:rgba(2,215,242,.22); stroke-width:1; }
+.zone-label { font-family:"Share Tech Mono",monospace; font-size:12px; letter-spacing:.12em; fill:var(--yellow); }
+.zone-label.z2 { fill:var(--cyan); }
+.zone-jp { font-family:"Noto Sans JP",sans-serif; font-weight:700; font-size:12px; letter-spacing:.25em; fill:var(--red); opacity:.8; }
+.tbl-body { fill:var(--panel-2); stroke-width:1.4; }
+.tbl-head { stroke:none; }
+.tbl-data .tbl-body { stroke:var(--yellow); } .tbl-data .tbl-head { fill:var(--yellow); } .tbl-data .tbl-title, .tbl-data .tbl-sub { fill:#07070D; }
+.tbl-access .tbl-body { stroke:var(--cyan); } .tbl-access .tbl-head { fill:var(--cyan); } .tbl-access .tbl-title, .tbl-access .tbl-sub { fill:#07070D; }
+.tbl-audit .tbl-body { stroke:var(--red); stroke-width:2; filter:url(#glow); } .tbl-audit .tbl-head { fill:var(--red); } .tbl-audit .tbl-title, .tbl-audit .tbl-sub { fill:#07070D; }
+.tbl-ext .tbl-body { stroke:var(--ink-soft); stroke-dasharray:6 4; } .tbl-ext .tbl-head { fill:#2A2A44; } .tbl-ext .tbl-title { fill:var(--ink); } .tbl-ext .tbl-sub { fill:var(--yellow); }
+.tbl-title { font-family:"Chakra Petch",sans-serif; font-weight:700; font-size:16px; letter-spacing:.04em; text-transform:uppercase; }
+.tbl-sub { font-family:"Share Tech Mono",monospace; font-size:11px; letter-spacing:.08em; }
+.tbl-jp { font-family:"Noto Sans JP",sans-serif; font-weight:500; font-size:11px; letter-spacing:.2em; fill:var(--ink-soft); opacity:.7; }
+.row-alt { fill:rgba(2,215,242,.045); }
+.row-name { font-family:"Share Tech Mono",monospace; font-size:12.5px; fill:var(--ink); }
+.row-name.key { fill:var(--yellow); }
+.row-type { font-family:"Share Tech Mono",monospace; font-size:11px; fill:var(--ink-soft); }
+.badge { stroke-width:1; }
+.badge-pk { fill:var(--yellow); stroke:var(--yellow); }
+.badge-fk { fill:transparent; stroke:var(--cyan); }
+.badge-t { font-family:"Share Tech Mono",monospace; font-size:10px; fill:#07070D; }
+.badge-fk + .badge-t { fill:var(--cyan); }
+.rel { fill:none; stroke-width:1.8; stroke-dasharray:7 5; filter:url(#glow); }
+.rel-data { stroke:var(--yellow); } .rel-access { stroke:var(--cyan); } .rel-audit { stroke:var(--red); }
+.rel-dot { fill:var(--cyan); filter:url(#glow); }
+.card { font-family:"Share Tech Mono",monospace; font-size:13px; }
+.card-data { fill:var(--yellow); } .card-access { fill:var(--cyan); } .card-audit { fill:var(--red); }
+.leg-title { font-family:"Share Tech Mono",monospace; font-size:13px; letter-spacing:.14em; fill:var(--red); }
+.leg-t { font-family:"Chakra Petch",sans-serif; font-size:12.5px; fill:var(--ink-soft); }
+.leg-mono { font-family:"Share Tech Mono",monospace; font-size:11px; fill:var(--yellow); }
+@keyframes flow { to { stroke-dashoffset:-24; } }
+@keyframes flick { 0%,92%,100% { opacity:1; } 94% { opacity:.35; } 96% { opacity:.9; } }
+@media (prefers-reduced-motion: no-preference) {
+  .rel { animation:flow 1.6s linear infinite; }
+  h1 { animation:flick 6s steps(1) infinite; }
+  .hud .blink { animation:flick 2.2s steps(1) infinite; }
+}
+h2 { margin:0; font-family:"Chakra Petch",sans-serif; font-weight:700; font-size:22px; letter-spacing:.06em; text-transform:uppercase; color:var(--cyan); }
+h2 small { font-family:"Noto Sans JP",sans-serif; font-size:12px; color:var(--red); letter-spacing:.25em; margin-left:10px; }
+.rules { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); gap:14px; }
+.rules li { display:flex; gap:12px; background:var(--panel); border-left:3px solid var(--yellow); padding:14px 16px;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%); }
+.rules li:nth-child(n+4) { border-left-color:var(--cyan); }
+.rule-n { white-space:nowrap; font-family:"Share Tech Mono",monospace; font-size:12px; color:var(--red); padding-top:2px; }
+.rules strong { font-size:15px; color:var(--ink); letter-spacing:.02em; }
+.rules p { margin:6px 0 10px; font-size:13.5px; line-height:1.5; color:var(--ink-soft); }
+.rules code { font-family:"Share Tech Mono",monospace; font-size:11.5px; letter-spacing:.06em; color:#07070D; background:var(--yellow); padding:2px 7px; }
+.rules li:nth-child(n+4) code { background:var(--cyan); }
+.foot { display:flex; flex-wrap:wrap; gap:8px 22px; justify-content:space-between; font-family:"Share Tech Mono",monospace; font-size:12px; color:var(--ink-soft); letter-spacing:.06em;
+  border-top:1px dashed rgba(252,238,10,.35); padding-top:14px; }
+.foot b { color:var(--yellow); font-weight:400; }
+.bars { display:inline-block; width:120px; height:18px; vertical-align:middle;
+  background:repeating-linear-gradient(90deg,var(--ink-soft) 0 2px,transparent 2px 4px,var(--ink-soft) 4px 5px,transparent 5px 9px,var(--ink-soft) 9px 12px,transparent 12px 14px); opacity:.6; }
+@media (max-width:480px) { body { padding-inline:16px; } }
+</style>
+<main>
+  <div class="hud"><span>SYS <b>//</b> NÚCLEO-DB</span><span>MOTOR <b>//</b> POSTGRESQL</span><span>ESTADO <b>//</b> DISEÑO V0.1</span><span class="blink">● EN LÍNEA</span></div>
+  <div class="title-wrap">
+    <h1>Núcleo de datos</h1>
+    <div class="jp">データベース · 設計図</div>
+    <p class="sub">Esquema de la versión mínima: <strong>activos inmobiliarios ficticios</strong> arriba, <strong>acceso y auditoría</strong> abajo. Cada movimiento de cada usuario queda grabado y nadie puede borrar sus huellas.</p>
+  </div>
+  <div class="op"><span>Operador invitado: Rubén</span><span>Rol: LECTOR · Intenta saltarte los permisos</span></div>
+  <figure>
+    <div class="scroll">
+<svg class="er" viewBox="0 44 1160 812" role="img" aria-label="Diagrama entidad-relación de la versión mínima: fondos se relaciona uno a muchos con activos, y activos uno a muchos con suministros. Cada usuario del login de Supabase tiene un perfil (uno a uno). Cada perfil tiene muchas filas en permisos_seccion y muchas entradas en registro_actividad.">
+<defs>
+<filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width="1160" height="900"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<pattern id="hazard" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="12" fill="#FCEE0A"/><rect x="6" width="6" height="12" fill="#0A0A12"/></pattern>
+</defs>
+<g class="zone"><polygon points="20,60 1140,60 1140,392 1122,410 20,410" class="zone-box"/><polygon points="20,430 1140,430 1140,842 20,842 20,448" class="zone-box"/></g>
+<rect x="20" y="60" width="8" height="350" fill="url(#hazard)"/>
+<rect x="20" y="448" width="8" height="394" fill="url(#hazard)" opacity=".55"/>
+<text x="44" y="84" class="zone-label">DATOS // ACTIVOS INMOBILIARIOS FICTICIOS</text>
+<text x="1124" y="84" class="zone-jp" text-anchor="end">データ層</text>
+<text x="44" y="454" class="zone-label z2">ACCESO Y AUDITORÍA // QUIÉN ENTRA Y QUÉ HACE</text>
+<text x="1124" y="454" class="zone-jp" text-anchor="end">セキュリティ層</text>
+<path d="M320,155.0 H380 V265.0 H440" class="rel rel-data"/>
+<path d="M720,155.0 H780 V177.0 H840" class="rel rel-data"/>
+<path d="M320,515.0 H440" class="rel rel-access"/>
+<path d="M720,515.0 H840" class="rel rel-access"/>
+<path d="M780,515.0 V709.0 H840" class="rel rel-audit"/>
+<circle cx="780" cy="515.0" r="4" class="rel-dot"/>
+<text x="328" y="148.0" class="card card-data" text-anchor="middle">1</text>
+<text x="428" y="258.0" class="card card-data" text-anchor="middle">N</text>
+<text x="728" y="148.0" class="card card-data" text-anchor="middle">1</text>
+<text x="828" y="170.0" class="card card-data" text-anchor="middle">N</text>
+<text x="328" y="508.0" class="card card-access" text-anchor="middle">1</text>
+<text x="428" y="508.0" class="card card-access" text-anchor="middle">1</text>
+<text x="728" y="508.0" class="card card-access" text-anchor="middle">1</text>
+<text x="828" y="508.0" class="card card-access" text-anchor="middle">N</text>
+<text x="828" y="702.0" class="card card-audit" text-anchor="middle">N</text>
+<g class="tbl tbl-data">
+<polygon points="54,100 320,100 320,246 306,260 40,260 40,114" class="tbl-body"/>
+<polygon points="54,100 320,100 320,138 40,138 40,114" class="tbl-head"/>
+<text x="62" y="125" class="tbl-title">fondos</text>
+<text x="308" y="124" class="tbl-sub" text-anchor="end">T-01</text>
+<text x="308" y="276" class="tbl-jp" text-anchor="end">ファンド</text>
+<rect x="50" y="147.5" width="26" height="15" rx="0" class="badge badge-pk"/>
+<text x="63.0" y="158.6" class="badge-t" text-anchor="middle">PK</text>
+<text x="96" y="159.0" class="row-name key">id</text>
+<text x="308" y="159.0" class="row-type" text-anchor="end">número</text>
+<rect x="41.5" y="166.0" width="277" height="22" class="row-alt"/>
+<text x="96" y="181.0" class="row-name">nombre</text>
+<text x="308" y="181.0" class="row-type" text-anchor="end">texto</text>
+<text x="96" y="203.0" class="row-name">cif</text>
+<text x="308" y="203.0" class="row-type" text-anchor="end">texto</text>
+<rect x="41.5" y="210.0" width="277" height="22" class="row-alt"/>
+<text x="96" y="225.0" class="row-name">iban</text>
+<text x="308" y="225.0" class="row-type" text-anchor="end">texto</text>
+<text x="96" y="247.0" class="row-name">creado_en</text>
+<text x="308" y="247.0" class="row-type" text-anchor="end">fecha y hora</text>
+</g>
+<g class="tbl tbl-data">
+<polygon points="454,100 720,100 720,356 706,370 440,370 440,114" class="tbl-body"/>
+<polygon points="454,100 720,100 720,138 440,138 440,114" class="tbl-head"/>
+<text x="462" y="125" class="tbl-title">activos</text>
+<text x="708" y="124" class="tbl-sub" text-anchor="end">T-02</text>
+<text x="708" y="386" class="tbl-jp" text-anchor="end">資産</text>
+<rect x="450" y="147.5" width="26" height="15" rx="0" class="badge badge-pk"/>
+<text x="463.0" y="158.6" class="badge-t" text-anchor="middle">PK</text>
+<text x="496" y="159.0" class="row-name key">id</text>
+<text x="708" y="159.0" class="row-type" text-anchor="end">número</text>
+<rect x="441.5" y="166.0" width="277" height="22" class="row-alt"/>
+<text x="496" y="181.0" class="row-name">codigo</text>
+<text x="708" y="181.0" class="row-type" text-anchor="end">texto</text>
+<text x="496" y="203.0" class="row-name">direccion</text>
+<text x="708" y="203.0" class="row-type" text-anchor="end">texto</text>
+<rect x="441.5" y="210.0" width="277" height="22" class="row-alt"/>
+<text x="496" y="225.0" class="row-name">municipio</text>
+<text x="708" y="225.0" class="row-type" text-anchor="end">texto</text>
+<text x="496" y="247.0" class="row-name">referencia_catastral</text>
+<text x="708" y="247.0" class="row-type" text-anchor="end">texto</text>
+<rect x="441.5" y="254.0" width="277" height="22" class="row-alt"/>
+<rect x="450" y="257.5" width="26" height="15" rx="0" class="badge badge-fk"/>
+<text x="463.0" y="268.6" class="badge-t" text-anchor="middle">FK</text>
+<text x="496" y="269.0" class="row-name key">fondo_id</text>
+<text x="708" y="269.0" class="row-type" text-anchor="end">número</text>
+<text x="496" y="291.0" class="row-name">estado</text>
+<text x="708" y="291.0" class="row-type" text-anchor="end">lista</text>
+<rect x="441.5" y="298.0" width="277" height="22" class="row-alt"/>
+<text x="496" y="313.0" class="row-name">fecha_compra</text>
+<text x="708" y="313.0" class="row-type" text-anchor="end">fecha</text>
+<text x="496" y="335.0" class="row-name">fecha_venta</text>
+<text x="708" y="335.0" class="row-type" text-anchor="end">fecha</text>
+<rect x="441.5" y="342.0" width="277" height="22" class="row-alt"/>
+<text x="496" y="357.0" class="row-name">creado_en</text>
+<text x="708" y="357.0" class="row-type" text-anchor="end">fecha y hora</text>
+</g>
+<g class="tbl tbl-data">
+<polygon points="854,100 1120,100 1120,290 1106,304 840,304 840,114" class="tbl-body"/>
+<polygon points="854,100 1120,100 1120,138 840,138 840,114" class="tbl-head"/>
+<text x="862" y="125" class="tbl-title">suministros</text>
+<text x="1108" y="124" class="tbl-sub" text-anchor="end">T-03</text>
+<text x="1108" y="320" class="tbl-jp" text-anchor="end">供給</text>
+<rect x="850" y="147.5" width="26" height="15" rx="0" class="badge badge-pk"/>
+<text x="863.0" y="158.6" class="badge-t" text-anchor="middle">PK</text>
+<text x="896" y="159.0" class="row-name key">id</text>
+<text x="1108" y="159.0" class="row-type" text-anchor="end">número</text>
+<rect x="841.5" y="166.0" width="277" height="22" class="row-alt"/>
+<rect x="850" y="169.5" width="26" height="15" rx="0" class="badge badge-fk"/>
+<text x="863.0" y="180.6" class="badge-t" text-anchor="middle">FK</text>
+<text x="896" y="181.0" class="row-name key">activo_id</text>
+<text x="1108" y="181.0" class="row-type" text-anchor="end">número</text>
+<text x="896" y="203.0" class="row-name">tipo</text>
+<text x="1108" y="203.0" class="row-type" text-anchor="end">LUZ / GAS</text>
+<rect x="841.5" y="210.0" width="277" height="22" class="row-alt"/>
+<text x="896" y="225.0" class="row-name">cups</text>
+<text x="1108" y="225.0" class="row-type" text-anchor="end">texto</text>
+<text x="896" y="247.0" class="row-name">potencia_contratada_kw</text>
+<text x="1108" y="247.0" class="row-type" text-anchor="end">decimal</text>
+<rect x="841.5" y="254.0" width="277" height="22" class="row-alt"/>
+<text x="896" y="269.0" class="row-name">tipo_instalacion_gas</text>
+<text x="1108" y="269.0" class="row-type" text-anchor="end">lista</text>
+<text x="896" y="291.0" class="row-name">creado_en</text>
+<text x="1108" y="291.0" class="row-type" text-anchor="end">fecha y hora</text>
+</g>
+<g class="tbl tbl-ext">
+<polygon points="54,460 320,460 320,562 306,576 40,576 40,474" class="tbl-body"/>
+<polygon points="54,460 320,460 320,498 40,498 40,474" class="tbl-head"/>
+<text x="62" y="485" class="tbl-title">auth.users</text>
+<text x="308" y="484" class="tbl-sub" text-anchor="end">SUPABASE</text>
+<text x="308" y="592" class="tbl-jp" text-anchor="end">認証</text>
+<rect x="50" y="507.5" width="26" height="15" rx="0" class="badge badge-pk"/>
+<text x="63.0" y="518.6" class="badge-t" text-anchor="middle">PK</text>
+<text x="96" y="519.0" class="row-name key">id</text>
+<text x="308" y="519.0" class="row-type" text-anchor="end">uuid</text>
+<rect x="41.5" y="526.0" width="277" height="22" class="row-alt"/>
+<text x="96" y="541.0" class="row-name">email</text>
+<text x="308" y="541.0" class="row-type" text-anchor="end">texto</text>
+<text x="96" y="563.0" class="row-name">contraseña</text>
+<text x="308" y="563.0" class="row-type" text-anchor="end">cifrada</text>
+</g>
+<g class="tbl tbl-access">
+<polygon points="454,460 720,460 720,606 706,620 440,620 440,474" class="tbl-body"/>
+<polygon points="454,460 720,460 720,498 440,498 440,474" class="tbl-head"/>
+<text x="462" y="485" class="tbl-title">perfiles</text>
+<text x="708" y="484" class="tbl-sub" text-anchor="end">T-04</text>
+<text x="708" y="636" class="tbl-jp" text-anchor="end">プロフィール</text>
+<rect x="450" y="507.5" width="40" height="15" rx="0" class="badge badge-pk"/>
+<text x="470.0" y="518.6" class="badge-t" text-anchor="middle">PK·FK</text>
+<text x="496" y="519.0" class="row-name key">id</text>
+<text x="708" y="519.0" class="row-type" text-anchor="end">uuid</text>
+<rect x="441.5" y="526.0" width="277" height="22" class="row-alt"/>
+<text x="496" y="541.0" class="row-name">nombre</text>
+<text x="708" y="541.0" class="row-type" text-anchor="end">texto</text>
+<text x="496" y="563.0" class="row-name">rol</text>
+<text x="708" y="563.0" class="row-type" text-anchor="end">lista</text>
+<rect x="441.5" y="570.0" width="277" height="22" class="row-alt"/>
+<text x="496" y="585.0" class="row-name">activo</text>
+<text x="708" y="585.0" class="row-type" text-anchor="end">sí / no</text>
+<text x="496" y="607.0" class="row-name">creado_en</text>
+<text x="708" y="607.0" class="row-type" text-anchor="end">fecha y hora</text>
+</g>
+<g class="tbl tbl-access">
+<polygon points="854,460 1120,460 1120,562 1106,576 840,576 840,474" class="tbl-body"/>
+<polygon points="854,460 1120,460 1120,498 840,498 840,474" class="tbl-head"/>
+<text x="862" y="485" class="tbl-title">permisos_seccion</text>
+<text x="1108" y="484" class="tbl-sub" text-anchor="end">T-05</text>
+<text x="1108" y="592" class="tbl-jp" text-anchor="end">権限</text>
+<rect x="850" y="507.5" width="40" height="15" rx="0" class="badge badge-pk"/>
+<text x="870.0" y="518.6" class="badge-t" text-anchor="middle">PK·FK</text>
+<text x="896" y="519.0" class="row-name key">perfil_id</text>
+<text x="1108" y="519.0" class="row-type" text-anchor="end">uuid</text>
+<rect x="841.5" y="526.0" width="277" height="22" class="row-alt"/>
+<rect x="850" y="529.5" width="26" height="15" rx="0" class="badge badge-pk"/>
+<text x="863.0" y="540.6" class="badge-t" text-anchor="middle">PK</text>
+<text x="896" y="541.0" class="row-name key">seccion</text>
+<text x="1108" y="541.0" class="row-type" text-anchor="end">lista</text>
+<text x="896" y="563.0" class="row-name">asignado_en</text>
+<text x="1108" y="563.0" class="row-type" text-anchor="end">fecha y hora</text>
+</g>
+<g class="tbl tbl-audit">
+<polygon points="854,610 1120,610 1120,800 1106,814 840,814 840,624" class="tbl-body"/>
+<polygon points="854,610 1120,610 1120,648 840,648 840,624" class="tbl-head"/>
+<text x="862" y="635" class="tbl-title">registro_actividad</text>
+<text x="1108" y="634" class="tbl-sub" text-anchor="end">T-06</text>
+<text x="1108" y="830" class="tbl-jp" text-anchor="end">ログ</text>
+<rect x="850" y="657.5" width="26" height="15" rx="0" class="badge badge-pk"/>
+<text x="863.0" y="668.6" class="badge-t" text-anchor="middle">PK</text>
+<text x="896" y="669.0" class="row-name key">id</text>
+<text x="1108" y="669.0" class="row-type" text-anchor="end">número</text>
+<rect x="841.5" y="676.0" width="277" height="22" class="row-alt"/>
+<text x="896" y="691.0" class="row-name">ocurrido_en</text>
+<text x="1108" y="691.0" class="row-type" text-anchor="end">fecha y hora</text>
+<rect x="850" y="701.5" width="26" height="15" rx="0" class="badge badge-fk"/>
+<text x="863.0" y="712.6" class="badge-t" text-anchor="middle">FK</text>
+<text x="896" y="713.0" class="row-name key">perfil_id</text>
+<text x="1108" y="713.0" class="row-type" text-anchor="end">uuid</text>
+<rect x="841.5" y="720.0" width="277" height="22" class="row-alt"/>
+<text x="896" y="735.0" class="row-name">accion</text>
+<text x="1108" y="735.0" class="row-type" text-anchor="end">lista</text>
+<text x="896" y="757.0" class="row-name">seccion</text>
+<text x="1108" y="757.0" class="row-type" text-anchor="end">lista</text>
+<rect x="841.5" y="764.0" width="277" height="22" class="row-alt"/>
+<text x="896" y="779.0" class="row-name">registro_id</text>
+<text x="1108" y="779.0" class="row-type" text-anchor="end">número</text>
+<text x="896" y="801.0" class="row-name">detalle</text>
+<text x="1108" y="801.0" class="row-type" text-anchor="end">JSON</text>
+</g>
+<g class="legend">
+<text x="40" y="640" class="leg-title">CLAVE DE LECTURA</text>
+<rect x="40" y="659" width="26" height="15" rx="0" class="badge badge-pk"/>
+<text x="53" y="670" class="badge-t" text-anchor="middle">PK</text>
+<text x="80" y="670" class="leg-t">Clave primaria: identifica cada fila, nunca se repite ni cambia.</text>
+<rect x="40" y="687" width="26" height="15" rx="0" class="badge badge-fk"/>
+<text x="53" y="698" class="badge-t" text-anchor="middle">FK</text>
+<text x="80" y="698" class="leg-t">Clave foránea: apunta al id de otra tabla y las conecta.</text>
+<text x="53" y="726" class="card card-data" text-anchor="middle">1·N</text>
+<text x="80" y="726" class="leg-t">Uno a muchos: un fondo tiene muchos activos; cada activo, un solo fondo.</text>
+<text x="53" y="754" class="card card-access" text-anchor="middle">1·1</text>
+<text x="80" y="754" class="leg-t">Uno a uno: cada usuario del login tiene exactamente un perfil.</text>
+<text x="53" y="782" class="card card-access" text-anchor="middle">N·M</text>
+<text x="80" y="782" class="leg-t">Muchos a muchos: perfiles y secciones, a través de permisos_seccion.</text>
+<text x="53" y="810" class="leg-mono" text-anchor="middle">uuid</text>
+<text x="80" y="810" class="leg-t">Identificador largo y único que genera Supabase para cada usuario.</text>
+</g>
+</svg>
+    </div>
+    <figcaption><b>&gt;</b> Las líneas unen cada clave foránea con la clave primaria a la que apunta. 1 y N marcan cuántas filas hay a cada lado. <b>AUTH.USERS</b> va en discontinua: la gestiona Supabase y guarda las contraseñas cifradas, fuera de nuestro alcance.</figcaption>
+  </figure>
+  <section style="display:flex;flex-direction:column;gap:14px">
+    <h2>Protocolos de seguridad<small>防御プロトコル</small></h2>
+    <ul class="rules">
+<li><span class="rule-n">R-01</span><div><strong>Luz y gas no se mezclan</strong><p>Un suministro de gas no puede llevar potencia, ni uno de luz tipo de instalación.</p><code>CHECK</code></div></li>
+<li><span class="rule-n">R-02</span><div><strong>Un suministro de cada tipo</strong><p>Un activo no puede tener dos suministros de luz ni dos de gas.</p><code>UNIQUE (activo_id, tipo)</code></div></li>
+<li><span class="rule-n">R-03</span><div><strong>Identificadores sin duplicados</strong><p>El CUPS, el CIF, la referencia catastral y el código del activo no se repiten.</p><code>UNIQUE</code></div></li>
+<li><span class="rule-n">R-04</span><div><strong>Cada uno en su sección</strong><p>Un usuario solo lee y escribe en las secciones que tiene asignadas. LECTOR nunca escribe.</p><code>ROW LEVEL SECURITY</code></div></li>
+<li><span class="rule-n">R-05</span><div><strong>Registro que no se toca</strong><p>Al registro de actividad solo se le añaden filas: nadie las modifica ni las borra, y solo ADMIN lo lee.</p><code>SOLO AÑADIR</code></div></li>
+<li><span class="rule-n">R-06</span><div><strong>Hasta las consultas dejan huella</strong><p>Búsquedas y consultas pasan por funciones que las apuntan. Un intento sin permiso queda como ACCESO_DENEGADO.</p><code>FUNCIONES + DISPARADORES</code></div></li>
+    </ul>
+  </section>
+  <div class="foot"><span>ROLES <b>//</b> ADMIN · EDITOR · LECTOR</span><span class="bars" aria-hidden="true"></span><span>DISEÑADO 24.09.2026 <b>//</b> ALS × JOI</span></div>
+</main>
