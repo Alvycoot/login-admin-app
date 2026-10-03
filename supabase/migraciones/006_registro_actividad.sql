@@ -1,0 +1,11 @@
+CREATE TABLE registro_actividad (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ocurrido_en TIMESTAMPTZ DEFAULT now(),
+  perfil_id UUID NOT NULL REFERENCES perfiles(id),
+  accion TEXT NOT NULL CHECK (accion IN ('LOGIN', 'LOGOUT', 'BUSQUEDA', 'CONSULTA', 'CREACION', 'MODIFICACION', 'BORRADO', 'ACCESO_DENEGADO')),
+  seccion TEXT CHECK (seccion IN ('FONDOS', 'ACTIVOS', 'SUMINISTROS')),
+  registro_id BIGINT,
+  detalle JSONB
+);
+
+ALTER TABLE registro_actividad ENABLE ROW LEVEL SECURITY;

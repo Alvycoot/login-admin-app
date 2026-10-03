@@ -1,0 +1,9 @@
+CREATE TABLE perfiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id),
+  nombre TEXT NOT NULL,
+  rol TEXT NOT NULL CHECK (rol IN ('ADMIN', 'EDITOR', 'LECTOR')),
+  activo BOOLEAN NOT NULL DEFAULT true,
+  creado_en TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE perfiles ENABLE ROW LEVEL SECURITY;
