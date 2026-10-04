@@ -1,0 +1,91 @@
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;700&family=Share+Tech+Mono&display=swap');
+
+:root {
+  --void: #07070D;
+  --panel: #0F0F1A;
+  --panel-2: #14142A;
+  --ink: #E9E6F2;
+  --ink-soft: #9A95B8;
+  --yellow: #FCEE0A;
+  --cyan: #02D7F2;
+  --red: #FF2A6D;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: var(--void);
+  background-image:
+    linear-gradient(rgba(2, 215, 242, .06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(2, 215, 242, .06) 1px, transparent 1px);
+  background-size: 32px 32px;
+  font-family: "Share Tech Mono", monospace;
+}
+
+.tarjeta-login {
+  background-color: var(--panel);
+  border: 1px solid rgba(2, 215, 242, .35);
+  box-shadow: 0 0 24px rgba(2, 215, 242, .25);
+  padding: 2.5rem;
+  width: 320px;
+}
+
+.tarjeta-login h1 {
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  font-size: 1.6rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--yellow);
+  margin: 0 0 1.5rem 0;
+  text-align: center;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+label {
+  color: var(--cyan);
+  font-size: .75rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+input {
+  background-color: var(--void);
+  border: 1px solid var(--panel-2);
+  color: var(--ink);
+  font-family: "Share Tech Mono", monospace;
+  font-size: .95rem;
+  padding: 0.6rem 0.8rem;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 8px rgba(2, 215, 242, .5);
+}
+
+button {
+  margin-top: 0.5rem;
+  background-color: var(--yellow);
+  color: var(--void);
+  border: none;
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 0.7rem;
+  cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+}
+
+button:hover {
+  background-color: var(--cyan);
+}
