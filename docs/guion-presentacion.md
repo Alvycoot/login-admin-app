@@ -206,6 +206,101 @@ Mismo HTML, dos hojas de estilo distintas — para comparar antes de decidir cu�
 
 Ambas comparten los mismos fundamentos de CSS: modelo de caja (`padding`/`margin`/`border`), `Flexbox` para centrar y organizar en columna, y pseudo-selectores (`:focus`, `:hover`) para dar retroalimentación visual al usuario.
 
+### 4.3. Versión elegida
+
+Se continúa con la versión **formal** (`login.html` + `estilos-formal.css`). La cyberpunk se conserva en el repositorio sin modificar: cuando la formal esté completa, se rehará la alternativa sobre ella para comparar ambos resultados.
+
+## 5. El login — JavaScript y conexión con Supabase Auth
+
+El formulario pasa de no hacer nada a autenticar usuarios reales contra Supabase. Se construyó en cinco pasos pequeños, cada uno probado en el navegador antes de pasar al siguiente.
+
+### 5.1. Carga de scripts (`login.html`)
+
+```html
+    </form>
+    <p id="mensaje"></p>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="login.js"></script>
+</body>
+```
+
+- Los scripts van **al final del `body`**: el navegador lee el HTML de arriba abajo, y el JavaScript necesita que el formulario ya exista para poder localizarlo.
+- El **orden importa**: primero la librería de Supabase (crea el objeto global `supabase`), después la configuración (define la URL y la clave) y por último el código propio, que usa ambos.
+- La librería se carga desde un CDN (jsDelivr) con la **versión exacta fijada** (`2.117.3`), no con `@2`. Así el código que recibe la página no cambia sin una decisión explícita: una actualización del proveedor no puede alterar el comportamiento del login por sorpresa.
+- El formulario recibe `id="form-login"` y se añade un párrafo vacío `<p id="mensaje">` para mostrar el resultado al usuario.
+
+### 5.2. Configuración fuera del repositorio
+
+```js
+// config.ejemplo.js — lo que se sube a GitHub
+const SUPABASE_URL = "PEGA_AQUI_TU_URL";
+const SUPABASE_KEY = "PEGA_AQUI_TU_CLAVE_PUBLICA";
+```
+
+- Los datos reales viven en `config.js`, que está en `.gitignore` y **nunca se sube**. En el repositorio solo hay `config.ejemplo.js`, con la misma forma y los huecos vacíos, para que quien descargue el proyecto sepa qué necesita.
+- `config.js` se añadió a `.gitignore` **antes** de crear el archivo, y se comprobó con `git check-ignore` y `git status` que Git no lo ve.
+- La clave usada es la **publishable**, pensada para ir en el navegador: es visible para cualquiera que abra la página, y lo que protege los datos es Row Level Security (sección 3). La clave **secret / service_role** salta el RLS y da acceso total: nunca debe ir en código de cliente.
+- Si es pública, ¿por qué no subirla? Porque es un hábito profesional mantener la configuración de cada entorno fuera del código, y porque así el repositorio no queda atado a un proyecto concreto de Supabase.
+- **Trampa encontrada:** `SUPABASE_URL` debe ser la URL **base** del proyecto (`https://<id>.supabase.co`). La que muestra la página *Data API* del panel termina en `/rest/v1/`; si se usa esa, la librería la duplica en todas sus rutas (`.../rest/v1/auth/v1`) y el login falla. Se detectó inspeccionando el cliente en la consola.
+
+### 5.3. El código (`login.js`)
+
+```js
+const clienteSupabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+console.log("Cliente de Supabase creado");
+
+const formulario = document.getElementById("form-login");
+const campoEmail = document.getElementById("email");
+const campoPassword = document.getElementById("password");
+const mensaje = document.getElementById("mensaje");
+
+formulario.addEventListener("submit", async function (evento){
+    evento.preventDefault();
+    const email = campoEmail.value;
+    const password = campoPassword.value;
+
+    const {data, error} = await clienteSupabase.auth.signInWithPassword({
+        email: email,
+        password: password,
+    });
+
+    if (error) {
+        console.log("Error al iniciar sesión:", error.message);
+        mensaje.textContent = "Correo o contraseña incorrectos.";
+        mensaje.className = "mensaje-error";
+    } else {
+        console.log("Sesión iniciada como:", data.user.email);
+        mensaje.textContent = "Has iniciado sesión como " + data.user.email;
+        mensaje.className = "mensaje-exito";
+    }
+});
+```
+
+**Paso 1: interceptar el envío.** `addEventListener("submit", ...)` ejecuta la función cuando se envía el formulario, y `evento.preventDefault()` cancela el comportamiento por defecto del navegador. Esto corrige el problema detectado en la sección 4.1: la contraseña ya no aparece en la URL.
+
+**Paso 2: leer los campos.** Los elementos se localizan **una vez**, al cargar la página, porque no cambian. Su contenido (`.value`) se lee **dentro** de la función, en el momento del envío: si se leyera fuera, se leería al cargar, con los campos vacíos.
+
+**Paso 3: crear el cliente.** `supabase.createClient(URL, clave)` crea el objeto a través del cual la página habla con el proyecto. La variable se llama `clienteSupabase`, no `supabase`, porque ese nombre ya lo ocupa la librería.
+
+**Paso 4: autenticar.** `signInWithPassword` envía las credenciales al servicio de autenticación de Supabase, que compara la contraseña con la versión cifrada que guarda en `auth.users`. La página nunca ve ni almacena contraseñas.
+- `async` / `await`: la respuesta llega por la red y tarda; `await` hace que el código espere a tenerla antes de seguir, y `async` marca la función que contiene esas esperas.
+- `const {data, error} = ...` extrae las dos partes de la respuesta: `error` (motivo del fallo, o `null`) y `data` (usuario y sesión, si todo fue bien).
+
+**Paso 5: responder al usuario.**
+- Se usa `textContent`, **no `innerHTML`**. `innerHTML` interpreta etiquetas HTML; si algún día se muestra algo escrito por el usuario, eso permitiría inyectar código en la página (ataque **XSS**). `textContent` lo muestra siempre como texto plano.
+- El mensaje de error es **genérico**: no distingue entre "el correo no existe" y "la contraseña es incorrecta". Si lo hiciera, un atacante podría averiguar qué correos están registrados probándolos uno a uno (enumeración de usuarios).
+- El color lo decide el CSS, no el JavaScript: el código solo asigna una clase (`mensaje-error` / `mensaje-exito`) con `className`, que además sustituye la anterior, de modo que nunca quedan las dos a la vez. Cada archivo tiene su responsabilidad: el CSS cómo se ve, el JavaScript qué pasa.
+- En la consola solo se registra la longitud de la contraseña durante las pruebas, nunca su valor; en la versión final no se registra en absoluto.
+
+### 5.4. Cómo se probó
+
+- **Usuario de prueba:** creado en el panel de Supabase (*Authentication → Users*), con un correo ficticio y confirmado automáticamente. Al ser datos de prueba, el RGPD todavía no aplica.
+- **Contraseña incorrecta:** aparece "Correo o contraseña incorrectos." en rojo. En la consola, el navegador registra `POST .../auth/v1/token?grant_type=password 400 (Bad Request)`: es la petición de login rechazada por el servidor, es decir, el comportamiento esperado, no un fallo del código.
+- **Contraseña correcta:** aparece "Has iniciado sesión como …" en verde.
+- Ambas pruebas son igual de importantes: un login debe dejar pasar a quien corresponde y rechazar a quien no.
+
 ---
 
-*Próxima sección pendiente: JavaScript y conexión con la autenticación de Supabase.*
+*Próxima sección pendiente: primera política de Row Level Security (cada usuario solo lee su propio perfil).*

@@ -62,3 +62,17 @@ button {
 button:hover {
   background-color: #3b5bdb;
 }
+
+#mensaje {
+  margin: 1rem 0 0 0;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.mensaje-error {
+  color: #ff6b6b;
+}
+
+.mensaje-exito {
+  color: #51cf66;
+}
