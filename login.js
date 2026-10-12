@@ -22,7 +22,19 @@ formulario.addEventListener("submit", async function (evento){
         mensaje.className = "mensaje-error";
     } else {
         console.log("Sesión iniciada como:", data.user.email);
-        mensaje.textContent = "Has iniciado sesión como " + data.user.email;
-        mensaje.className = "mensaje-exito";
+
+        const { data: perfiles, error: errorPerfil } = await clienteSupabase
+            .from("perfiles")
+            .select("*");
+
+        console.log("Perfiles visibles:", perfiles);
+
+        if (errorPerfil || perfiles.length === 0) {
+            mensaje.textContent = "Sesión iniciada, pero no se encontró tu perfil.";
+            mensaje.className = "mensaje-error";
+        } else {
+            mensaje.textContent = "Bienvenido, " + perfiles[0].nombre;
+            mensaje.className = "mensaje-exito";
+        }
     }
 });

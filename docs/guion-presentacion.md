@@ -159,7 +159,7 @@ Row Level Security es una capa de reglas de PostgreSQL que filtra, fila a fila, 
 
 **Consecuencia inmediata:** activar RLS sin definir ninguna política todavía no abre la tabla, la **cierra por completo** a cualquier cliente que use las claves públicas (las que usará la propia aplicación web). Es la postura de seguridad "denegado por defecto": mientras no exista una política explícita que lo permita, nadie externo puede leer ni escribir nada. El SQL Editor de Supabase, al trabajar con privilegios de administrador, sigue teniendo acceso completo — por eso se pudieron crear y probar las tablas con normalidad.
 
-**Pendiente:** las políticas concretas (quién puede leer/escribir qué, según el rol de `perfiles` y las secciones de `permisos_seccion`) se añadirán cuando se construya el login y la lógica de permisos — es el siguiente hito de seguridad del proyecto.
+**Políticas:** la primera (cada usuario lee solo su propio perfil) está en la sección 6. El resto (quién puede leer/escribir qué, según el rol de `perfiles` y las secciones de `permisos_seccion`) se irá añadiendo de la misma forma: abriendo en cada caso solo lo imprescindible.
 
 ## 4. El login — HTML y CSS
 
@@ -247,6 +247,8 @@ const SUPABASE_KEY = "PEGA_AQUI_TU_CLAVE_PUBLICA";
 
 ### 5.3. El código (`login.js`)
 
+*(Estado al cerrar esta pieza. En la sección 6.4 la rama de éxito se amplía para leer el perfil del usuario.)*
+
 ```js
 const clienteSupabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 console.log("Cliente de Supabase creado");
@@ -301,6 +303,99 @@ formulario.addEventListener("submit", async function (evento){
 - **Contraseña correcta:** aparece "Has iniciado sesión como …" en verde.
 - Ambas pruebas son igual de importantes: un login debe dejar pasar a quien corresponde y rechazar a quien no.
 
+## 6. Primera política de RLS — cada usuario lee solo su propio perfil
+
+Hasta aquí, las tablas estaban cerradas por completo (sección 3) y el login funcionaba (sección 5), pero un usuario con sesión no podía leer nada. Esta pieza abre la primera rendija, y la más pequeña posible: que cada usuario pueda **leer su propia fila de `perfiles`** y ninguna otra.
+
+### 6.1. Cómo sabe la base de datos quién pregunta
+
+- Tras un login correcto, Supabase entrega al navegador un **token de sesión** (JWT) que contiene el id del usuario y está **firmado** por Supabase. Cualquier modificación invalida la firma, así que no puede falsificarse ni editarse para suplantar a otro usuario.
+- La librería guarda ese token y lo adjunta **automáticamente** a cada petición.
+- En la base de datos, la función **`auth.uid()`** devuelve el id del usuario de la petición en curso, extraído de ese token ya verificado. Sin sesión, devuelve `NULL`.
+- La decisión se toma **en la base de datos**, no en la página: el JavaScript del navegador puede ser manipulado por cualquiera, el token firmado no.
+
+Aquí se aprovecha una decisión del diseño (sección 2.4): `perfiles.id` es **el mismo UUID** que `auth.users.id`. La fila de perfil de cada usuario lleva exactamente su identificador, así que la regla se puede expresar como una simple comparación.
+
+### 6.2. La política
+
+Archivo `supabase/migraciones/007_politica_perfiles_lectura.sql`:
+
+```sql
+CREATE POLICY "Cada usuario lee su propio perfil"
+ON perfiles
+FOR SELECT
+TO authenticated
+USING (id = auth.uid());
+```
+
+- **`CREATE POLICY "..."`** — el nombre es descriptivo, para personas (es el que aparece en el panel). Comillas dobles porque es un nombre con espacios; en SQL las simples son para valores.
+- **`ON perfiles`** — tabla a la que se aplica.
+- **`FOR SELECT`** — solo lectura. Crear, modificar o borrar perfiles sigue cerrado: se abre únicamente lo imprescindible.
+- **`TO authenticated`** — solo para peticiones con un token válido. Supabase distingue `anon` (sin sesión) y `authenticated`. Es una doble barrera: sin sesión la política ni se evalúa, y aunque se evaluara, `auth.uid()` sería `NULL` y no pasaría.
+- **`USING (id = auth.uid())`** — la condición que se comprueba **en cada fila**: solo es visible si su `id` coincide con el del usuario que pregunta. Las filas que no la cumplen no producen un error: para esa petición, simplemente no existen.
+- **Por qué no basta con `TO authenticated`:** sin el `USING`, cualquier usuario con sesión vería *todos* los perfiles. El `USING` es lo que convierte "tener sesión" en "ver solo lo tuyo", y protege también frente a un usuario legítimo con malas intenciones, no solo frente a alguien de fuera.
+
+Se escribió primero en el archivo de migración, se revisó, y después se ejecutó en el SQL Editor de Supabase, igual que las tablas.
+
+### 6.3. Datos de prueba
+
+Dos usuarios ficticios creados en *Authentication → Users*, con su fila en `perfiles` insertada a mano desde el SQL Editor:
+
+| Usuario | Nombre en `perfiles` | Rol |
+|---|---|---|
+| `admin.prueba@ejemplo.com` | Admin de prueba | ADMIN |
+| `lector.prueba@ejemplo.com` | Lector de prueba | LECTOR |
+
+Estas inserciones son **datos de prueba**, no estructura, así que no se guardan como migración. Las migraciones solo contienen lo necesario para reconstruir la base de datos desde cero (tablas, políticas, funciones).
+
+### 6.4. La prueba desde la página (`login.js`)
+
+Tras un login correcto, la página pide el perfil y saluda al usuario por su nombre:
+
+```js
+    } else {
+        console.log("Sesión iniciada como:", data.user.email);
+
+        const { data: perfiles, error: errorPerfil } = await clienteSupabase
+            .from("perfiles")
+            .select("*");
+
+        console.log("Perfiles visibles:", perfiles);
+
+        if (errorPerfil || perfiles.length === 0) {
+            mensaje.textContent = "Sesión iniciada, pero no se encontró tu perfil.";
+            mensaje.className = "mensaje-error";
+        } else {
+            mensaje.textContent = "Bienvenido, " + perfiles[0].nombre;
+            mensaje.className = "mensaje-exito";
+        }
+    }
+```
+
+- **Se piden todos los perfiles, sin filtrar, a propósito.** Si el JavaScript filtrara por el id del usuario, no se sabría si protege la política o el propio código. Pidiendo todo, si llega solo la fila propia, queda demostrado que quien filtra es la base de datos.
+- `{ data: perfiles, error: errorPerfil }` extrae la respuesta con otros nombres, porque `data` y `error` ya existen en ese bloque (son los del login).
+- El nombre llega de la base de datos y se muestra con `textContent`: aunque alguien guardara código como nombre, se mostraría como texto y nunca se ejecutaría.
+
+### 6.5. Cómo se probó
+
+**Primer intento — no demostraba nada.** Con un solo perfil en la tabla, la página recibía 1 fila. Pero "todos los perfiles" y "solo el mío" eran lo mismo: el resultado habría sido idéntico sin ninguna política. Por eso se creó un segundo usuario antes de dar la prueba por buena.
+
+**Prueba válida, con dos perfiles en la tabla:**
+
+| Quién pide (`select("*")`) | Qué recibe |
+|---|---|
+| Admin con sesión | 1 fila: la suya |
+| Lector con sesión | 1 fila: la suya (otro id) |
+| Sin sesión | 0 filas |
+
+- El mismo código, haciendo la misma petición, recibe respuestas distintas según quién la hace.
+- **Sin sesión**, la prueba se hizo como lo haría un atacante: desde la consola del navegador, cerrando la sesión (`await clienteSupabase.auth.signOut()`) y pidiendo a mano todos los perfiles. Respuesta: `data: []`, `error: null`, `status: 200`. No hay mensaje de "acceso denegado": el atacante ni siquiera puede distinguir si la tabla está vacía o protegida.
+- El SQL Editor del panel trabaja con privilegios de administrador y **se salta el RLS**: por eso allí se ven las dos filas, y por eso la prueba real tiene que hacerse desde la página.
+
+### 6.6. Pregunta previsible: "¿Y el administrador no ve todos los perfiles?"
+
+Todavía no, y es intencionado. Esta política solo establece "cada uno ve lo suyo". El acceso ampliado del administrador será **otra política, explícita**, basada en el rol guardado en `perfiles`. El enfoque es: primero cerrar todo, después abrir lo mínimo para cualquier usuario, y por último conceder los accesos extra de cada rol uno a uno, cada uno con su regla visible.
+
 ---
 
-*Próxima sección pendiente: primera política de Row Level Security (cada usuario solo lee su propio perfil).*
+*Próxima sección pendiente: políticas por rol (acceso del administrador) y por sección (`permisos_seccion`).*
