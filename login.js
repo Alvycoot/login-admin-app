@@ -25,7 +25,8 @@ formulario.addEventListener("submit", async function (evento){
 
         const { data: perfiles, error: errorPerfil } = await clienteSupabase
             .from("perfiles")
-            .select("*");
+            .select("*")
+            .eq("id", data.user.id);
 
         console.log("Perfiles visibles:", perfiles);
 

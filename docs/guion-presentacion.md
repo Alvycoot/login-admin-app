@@ -159,7 +159,7 @@ Row Level Security es una capa de reglas de PostgreSQL que filtra, fila a fila, 
 
 **Consecuencia inmediata:** activar RLS sin definir ninguna política todavía no abre la tabla, la **cierra por completo** a cualquier cliente que use las claves públicas (las que usará la propia aplicación web). Es la postura de seguridad "denegado por defecto": mientras no exista una política explícita que lo permita, nadie externo puede leer ni escribir nada. El SQL Editor de Supabase, al trabajar con privilegios de administrador, sigue teniendo acceso completo — por eso se pudieron crear y probar las tablas con normalidad.
 
-**Políticas:** la primera (cada usuario lee solo su propio perfil) está en la sección 6. El resto (quién puede leer/escribir qué, según el rol de `perfiles` y las secciones de `permisos_seccion`) se irá añadiendo de la misma forma: abriendo en cada caso solo lo imprescindible.
+**Políticas:** la primera (cada usuario lee solo su propio perfil) está en la sección 6; la del administrador (lee todos los perfiles), en la sección 7. El resto (quién puede leer/escribir qué, según el rol de `perfiles` y las secciones de `permisos_seccion`) se irá añadiendo de la misma forma: abriendo en cada caso solo lo imprescindible.
 
 ## 4. El login — HTML y CSS
 
@@ -350,6 +350,8 @@ Estas inserciones son **datos de prueba**, no estructura, así que no se guardan
 
 ### 6.4. La prueba desde la página (`login.js`)
 
+*(Estado al cerrar esta pieza. En la sección 7.5 la consulta pasa a filtrar por el usuario que ha entrado.)*
+
 Tras un login correcto, la página pide el perfil y saluda al usuario por su nombre:
 
 ```js
@@ -394,8 +396,121 @@ Tras un login correcto, la página pide el perfil y saluda al usuario por su nom
 
 ### 6.6. Pregunta previsible: "¿Y el administrador no ve todos los perfiles?"
 
-Todavía no, y es intencionado. Esta política solo establece "cada uno ve lo suyo". El acceso ampliado del administrador será **otra política, explícita**, basada en el rol guardado en `perfiles`. El enfoque es: primero cerrar todo, después abrir lo mínimo para cualquier usuario, y por último conceder los accesos extra de cada rol uno a uno, cada uno con su regla visible.
+Con esta política sola, no, y es intencionado. Esta política solo establece "cada uno ve lo suyo". El acceso ampliado del administrador es **otra política, explícita**, basada en el rol guardado en `perfiles` (sección 7). El enfoque es: primero cerrar todo, después abrir lo mínimo para cualquier usuario, y por último conceder los accesos extra de cada rol uno a uno, cada uno con su regla visible.
+
+## 7. Política del administrador — lee todos los perfiles
+
+Primer acceso extra por rol: el usuario con rol `ADMIN` puede leer **todos** los perfiles, no solo el suyo.
+
+### 7.1. Las políticas se suman
+
+Si una tabla tiene varias políticas `SELECT`, una fila es visible cuando **cualquiera** de ellas la permite (un "O" lógico):
+
+```
+fila visible  =  "es mía" (sección 6)   O   "soy admin" (esta sección)
+```
+
+Por eso la política de la sección 6 no se toca: se añade una segunda. Y la nueva condición no depende de la fila que se mira, sino de **quién pregunta**: si es admin, se cumple para todas las filas.
+
+### 7.2. ¿Cómo se sabe que quien pregunta es admin de verdad?
+
+La pregunta de seguridad previa a escribir nada. La respuesta es una cadena de confianza con dos eslabones:
+
+1. **Quién es** → `auth.uid()`, sacado del token firmado (sección 6.1). No se puede falsificar.
+2. **Qué rol tiene** → la columna `rol` de `perfiles`, consultada **dentro de la base de datos**. El navegador nunca dice "soy admin": solo aporta su identidad firmada, y el rol lo decide la tabla.
+
+**Dónde estaría el ataque de verdad:** en quién puede **escribir** el rol. Si un usuario pudiera editar su propia fila de `perfiles`, podría cambiarse a `ADMIN` desde la consola (**escalada de privilegios**). Lo mismo si el rol se guardara en los metadatos de usuario de Supabase (`user_metadata`), que el propio usuario puede modificar. Hoy `perfiles` no tiene ninguna política de `INSERT` ni `UPDATE`, así que nadie puede cambiar un rol desde la aplicación. **Regla para el futuro:** si se permite editar el perfil propio, nunca podrá incluir `rol` ni `activo`.
+
+### 7.3. La trampa: recursión infinita
+
+La forma directa de escribir la condición sería:
+
+```sql
+USING (
+  EXISTS (
+    SELECT 1
+    FROM perfiles
+    WHERE id = auth.uid() AND rol = 'ADMIN'
+  )
+)
+```
+
+- `EXISTS (...)` devuelve verdadero si la subconsulta encuentra alguna fila; `SELECT 1` indica que no importan las columnas, solo si existe.
+- Lógicamente es correcta, pero **no funciona**: es una política sobre `perfiles` que, para evaluarse, lee `perfiles`. Esa lectura también pasa por el RLS, que vuelve a evaluar la política, que vuelve a leer `perfiles`... PostgreSQL lo detecta y corta con `infinite recursion detected in policy for relation "perfiles"`.
+- Y falla **la consulta entera**, no solo la parte del admin: nadie, ni siquiera el lector con su propia política, podría leer `perfiles`.
+
+Se detectó antes de ejecutar, razonándolo, no por el error.
+
+### 7.4. La solución: una función `SECURITY DEFINER`
+
+Archivo `supabase/migraciones/008_politica_perfiles_admin.sql`:
+
+```sql
+CREATE SCHEMA IF NOT EXISTS privado;
+
+GRANT USAGE ON SCHEMA privado TO authenticated;
+
+CREATE FUNCTION privado.es_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.perfiles
+    WHERE id = auth.uid() AND rol = 'ADMIN' AND activo
+  );
+$$;
+
+CREATE POLICY "El admin lee todos los perfiles"
+ON public.perfiles
+FOR SELECT
+TO authenticated
+USING (privado.es_admin());
+```
+
+- **`SECURITY DEFINER`** — la función se ejecuta con los permisos de quien la creó, no con los del usuario que pregunta, así que su lectura interna de `perfiles` **no pasa por el RLS**. Se rompe el bucle. Es como el portero de un edificio que consulta la lista de vecinos en su garita: no se pide permiso a sí mismo para mirarla.
+- Al ser una herramienta potente, se blinda:
+  - **Solo devuelve verdadero o falso** sobre quien pregunta. No expone datos de nadie.
+  - **`SET search_path = ''`** y nombres completos (`public.perfiles`, `auth.uid()`): la función no busca tablas por nombre suelto, así que nadie puede colarle una tabla falsa con el mismo nombre.
+  - **Esquema propio, `privado`**, que no está entre los que Supabase publica en su API: no se puede llamar directamente desde el navegador.
+- **`GRANT USAGE ON SCHEMA privado TO authenticated`** — la política se evalúa con los permisos de quien pregunta, que necesita poder "entrar" en el esquema para llamar a la función. Sin esta línea, toda lectura de `perfiles` daría `permission denied for schema privado`. No publica el esquema en la API: eso depende de otro ajuste de Supabase ("Exposed schemas").
+- **`STABLE`** — indica a PostgreSQL que, dentro de una misma consulta, la función devuelve siempre lo mismo, lo que le permite optimizar.
+- **`AND activo`** — un administrador desactivado pierde sus permisos. `activo` es `BOOLEAN`, así que puede ir sola como condición (equivale a `activo = true`); `rol`, que es texto, necesita la comparación.
+- `privado.es_admin()` queda disponible para cualquier política futura que dependa del rol de admin.
+
+### 7.5. El saludo de `login.js`, corregido
+
+Con la política nueva, el admin recibe varios perfiles, y el saludo usaba `perfiles[0].nombre`: "el primero de la lista". Sin un `ORDER BY`, la base de datos no garantiza el orden, así que el primero podía no ser el suyo. En la prueba salió bien, pero por suerte.
+
+La consulta pasa a pedir solo el perfil del usuario que ha entrado:
+
+```js
+        const { data: perfiles, error: errorPerfil } = await clienteSupabase
+            .from("perfiles")
+            .select("*")
+            .eq("id", data.user.id);
+```
+
+- `.eq("columna", valor)` es el `WHERE columna = valor` de SQL escrito desde JavaScript (*equal*, "igual").
+- `data.user.id` es el id del usuario devuelto por el login: el equivalente en el navegador de `auth.uid()` en la base de datos, y el mismo UUID que su fila en `perfiles`.
+- **El filtro no es la seguridad, es la intención.** La protección sigue estando en el RLS: si alguien quitara el `.eq` desde la consola, seguiría viendo solo lo que su política le permite. El filtro solo dice qué fila quiere la página para el saludo.
+- Las pruebas de la política (7.6) se hicieron **antes** de añadir el filtro, con la consulta sin filtrar, por el mismo motivo que en la sección 6.4: para que lo que se viera fuera obra de la base de datos.
+
+### 7.6. Cómo se probó
+
+Con la consulta sin filtrar (`select("*")`):
+
+| Quién pide | Qué recibe | Por qué |
+|---|---|---|
+| Admin con sesión | 2 filas: todos los perfiles | `es_admin()` devuelve verdadero |
+| Lector con sesión | 1 fila: la suya | `es_admin()` es falso; solo le vale la política de la sección 6 |
+| Sin sesión | 0 filas (`data: []`, `error: null`, `status: 200`) | `TO authenticated`: ninguna política se evalúa |
+
+Después, con el filtro `.eq`: el admin recibe 1 fila, la suya, y el saludo es "Bienvenido, Admin de prueba".
 
 ---
 
-*Próxima sección pendiente: políticas por rol (acceso del administrador) y por sección (`permisos_seccion`).*
+*Próxima sección pendiente: acceso por sección (`fondos`, `activos`, `suministros`) según el rol y `permisos_seccion`.*
