@@ -511,6 +511,100 @@ Con la consulta sin filtrar (`select("*")`):
 
 Después, con el filtro `.eq`: el admin recibe 1 fila, la suya, y el saludo es "Bienvenido, Admin de prueba".
 
+## 8. Acceso por sección — lectura de fondos
+
+Hasta aquí las reglas respondían a "¿es tu perfil?" (sección 6) y "¿eres admin?" (sección 7). Esta pieza introduce una tercera pregunta: **"¿tienes asignada esta sección?"**. La respuesta vive en `permisos_seccion` (sección 2), la tabla intermedia de la relación muchos a muchos entre perfiles y secciones. Se empieza por `fondos`; `activos` y `suministros` seguirán el mismo patrón.
+
+### 8.1. Por qué otra función `SECURITY DEFINER`
+
+La forma directa sería que la política de `fondos` consultara `permisos_seccion`. No funciona, pero por un motivo distinto al de la sección 7.3: `permisos_seccion` tiene RLS activado **sin ninguna política**, así que, para un usuario normal, esa tabla está vacía. La consulta interna no encontraría nunca su permiso y nadie, salvo el admin, vería un solo fondo.
+
+La solución es la misma herramienta que en la sección 7.4: una función `SECURITY DEFINER` en el esquema `privado`, que consulta la tabla con los permisos de quien la creó y solo devuelve verdadero o falso. `permisos_seccion` sigue cerrada a la lectura directa: nadie puede ver qué permisos tienen los demás.
+
+### 8.2. La migración
+
+Archivo `supabase/migraciones/009_politica_fondos_seccion.sql`:
+
+```sql
+CREATE FUNCTION privado.tiene_seccion(seccion_pedida text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT privado.es_admin() OR EXISTS (
+    SELECT 1
+    FROM public.permisos_seccion AS ps
+    JOIN public.perfiles AS p ON p.id = ps.perfil_id
+    WHERE ps.perfil_id = auth.uid()
+        AND ps.seccion = seccion_pedida
+        AND p.activo
+  );
+$$;
+
+CREATE POLICY "Lectura de fondos por sección"
+ON public.fondos
+FOR SELECT
+TO authenticated
+USING ((select privado.tiene_seccion('FONDOS')));
+```
+
+**La función:**
+- **`(seccion_pedida text)`** — un **parámetro**: el dato que recibe la función al llamarla. Una sola función sirve para las tres secciones; cada política le dice cuál comprobar (`'FONDOS'`, `'ACTIVOS'`, `'SUMINISTROS'`), en vez de escribir tres funciones casi idénticas.
+- **Por qué no se llama `seccion`:** es el nombre de la columna de `permisos_seccion`. Con `ps.seccion = seccion`, Postgres tendría dos cosas con el mismo nombre y la comparación sería ambigua. Un nombre distinto elimina la duda.
+- **`privado.es_admin() OR EXISTS (...)`** — reutiliza la función de la sección 7: el admin entra en todas las secciones **sin necesitar filas** en `permisos_seccion`. Si no es admin, se mira si existe su permiso.
+- **`JOIN public.perfiles AS p ON p.id = ps.perfil_id`** — une cada permiso con el perfil al que pertenece, como un BUSCARV entre dos hojas. Hace falta porque el permiso está en una tabla y el estado `activo`, en otra.
+- **`AS ps` / `AS p`** — **alias**: apodos cortos para no repetir el nombre completo de cada tabla.
+- **`AND p.activo`** — un usuario desactivado pierde el acceso aunque conserve sus permisos, igual que un admin desactivado en la sección 7.
+- El resto de la cabecera (`STABLE`, `SECURITY DEFINER`, `search_path = ''`, nombres completos) se explica en la sección 7.4. No se repite el `CREATE SCHEMA` ni el `GRANT USAGE`: ya existen desde la migración 008.
+
+**La política:**
+- **`'FONDOS'`** — en mayúsculas y entre comillas simples, exactamente como lo admite la regla `CHECK` de `permisos_seccion`. Con `'fondos'` no coincidiría con ninguna fila.
+- **`((select ...))`** — recomendación de rendimiento de Supabase. Sin el `select`, PostgreSQL puede ejecutar la función **una vez por cada fila** de la tabla; envuelta en un `select`, la ejecuta **una sola vez por consulta** y reutiliza el resultado. Como la respuesta depende de quién pregunta y no de la fila, el resultado es el mismo y el coste baja. Los dos pares de paréntesis tienen funciones distintas: el de fuera lo exige `USING`, el de dentro envuelve el `select`.
+
+### 8.3. Datos de prueba
+
+Insertados a mano desde el SQL Editor (no son migración, ver sección 6.3):
+
+- Un **tercer usuario ficticio**, `editor.prueba@ejemplo.com`, creado en *Authentication → Users* con su fila en `perfiles` (nombre "Editor de prueba", rol `EDITOR`).
+- **Tres fondos ficticios.**
+- **Permisos**, cada uno pensado para demostrar algo:
+
+| Usuario | Permisos | Qué demuestra |
+|---|---|---|
+| admin | ninguno | Entra por su rol, sin permisos asignados |
+| lector | `FONDOS` | Quien tiene la sección, la ve |
+| editor | `ACTIVOS` | Tener *otra* sección no da acceso a esta: la función mira la sección concreta, no "algún permiso" |
+
+En lugar de copiar a mano el UUID de cada usuario, los `INSERT` lo obtienen con una **subconsulta** por correo:
+
+```sql
+INSERT INTO permisos_seccion (perfil_id, seccion)
+VALUES
+  ((SELECT id FROM auth.users WHERE email = 'lector.prueba@ejemplo.com'), 'FONDOS'),
+  ((SELECT id FROM auth.users WHERE email = 'editor.prueba@ejemplo.com'), 'ACTIVOS');
+```
+
+La subconsulta va entre sus propios paréntesis, dentro de los de la fila: así PostgreSQL sabe dónde termina y dónde empieza el siguiente valor.
+
+### 8.4. Cómo se probó
+
+Desde la consola del navegador, iniciando sesión con cada usuario en el formulario y pidiendo todos los fondos sin filtrar:
+
+```js
+await clienteSupabase.from("fondos").select("*")
+```
+
+| Quién pide | Qué recibe | Por qué |
+|---|---|---|
+| Admin | 3 fondos | `es_admin()` es verdadero |
+| Lector | 3 fondos | Tiene el permiso `FONDOS` |
+| Editor | 0 (`data: []`) | Solo tiene `ACTIVOS` |
+| Sin sesión (tras `signOut()`) | 0 (`data: []`) | `TO authenticated`: ninguna política se evalúa |
+
+En los cuatro casos, `error: null` y `status: 200`. Igual que en la sección 6.5, quien no tiene acceso no recibe un "prohibido": para él, la tabla simplemente está vacía.
+
 ---
 
-*Próxima sección pendiente: acceso por sección (`fondos`, `activos`, `suministros`) según el rol y `permisos_seccion`.*
+*Próxima sección pendiente: el mismo patrón de acceso por sección para `activos` y `suministros`.*
