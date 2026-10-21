@@ -605,6 +605,91 @@ await clienteSupabase.from("fondos").select("*")
 
 En los cuatro casos, `error: null` y `status: 200`. Igual que en la sección 6.5, quien no tiene acceso no recibe un "prohibido": para él, la tabla simplemente está vacía.
 
+## 9. Acceso por sección — activos y suministros
+
+Segunda pieza del acceso por sección: aplicar a `activos` y `suministros` la misma regla que a `fondos` (sección 8).
+
+### 9.1. La migración: solo políticas
+
+Archivo `supabase/migraciones/010_politica_activos_suministros_seccion.sql`:
+
+```sql
+CREATE POLICY "Lectura de activos por sección"
+ON public.activos
+FOR SELECT
+TO authenticated
+USING ((select privado.tiene_seccion('ACTIVOS')));
+
+CREATE POLICY "Lectura de suministros por sección"
+ON public.suministros
+FOR SELECT
+TO authenticated
+USING ((select privado.tiene_seccion('SUMINISTROS')));
+```
+
+- **No hay función nueva.** `privado.tiene_seccion` ya existe desde la migración 009, y como recibe la sección como parámetro, sirve tal cual: cada política solo cambia el valor que le pasa. Volver a escribir `CREATE FUNCTION` habría fallado con `function ... already exists`. Es la ventaja de parametrizar: la lógica se escribe una vez y se reutiliza.
+- Cada política cambia tres cosas respecto a la de `fondos`: el nombre, la tabla del `ON` y la sección.
+
+### 9.2. La trampa: copiar y no cambiar la tabla
+
+La migración se escribió copiando la política de `fondos`, y en la primera versión ambas políticas se quedaron con `ON public.fondos`. Se detectó en la revisión, antes de ejecutar.
+
+Lo peligroso es que **no habría dado ningún error**: crear más políticas sobre `fondos` es válido. Pero, como las políticas se suman (sección 7.1), el resultado habría sido:
+
+```
+ver fondos  =  tiene FONDOS   O   tiene ACTIVOS   O   tiene SUMINISTROS
+```
+
+Cualquier usuario con cualquier sección habría visto los fondos, y `activos` y `suministros` habrían seguido cerradas. Un agujero silencioso: solo lo habrían delatado las pruebas con varios usuarios (el editor, que solo tiene `ACTIVOS`, habría pasado de ver 0 fondos a ver 3). **Al copiar una política, lo primero que se revisa es la tabla del `ON`.**
+
+### 9.3. Datos de prueba
+
+Insertados a mano desde el SQL Editor:
+
+- **Tres activos ficticios** (`ACT-001` a `ACT-003`), uno por fondo. `fondo_id` va sin comillas, porque es un número.
+- **Cuatro suministros:** `ACT-001` con luz y gas, los otros dos solo con luz, como en el diseño (sección 2).
+- **Un permiso nuevo:** `SUMINISTROS` para el lector. Sin él, ningún usuario normal tenía esa sección y no se podía probar el caso "sí la ve".
+
+```sql
+INSERT INTO suministros (activo_id, tipo, cups, potencia_contratada_kw, tipo_instalacion_gas)
+VALUES
+  ((SELECT id FROM activos WHERE codigo = 'ACT-001'), 'LUZ', 'ES0021000000000001AA', 7.5, NULL),
+  ((SELECT id FROM activos WHERE codigo = 'ACT-001'), 'GAS', 'ES0217000000000001BB', NULL, 'INDIVIDUAL'),
+  ((SELECT id FROM activos WHERE codigo = 'ACT-002'), 'LUZ', 'ES0021000000000001CC', 7, NULL),
+  ((SELECT id FROM activos WHERE codigo = 'ACT-003'), 'LUZ', 'ES0021000000000001DD', 6.5, NULL);
+```
+
+- **`activo_id` por subconsulta sobre `codigo`**, en lugar de suponer qué id le tocó a cada activo.
+- **`NULL`** — "vacío". En un `INSERT` de varias filas, todas dan valor a todas las columnas de la lista; el dato que no corresponde se rellena con `NULL`. Las restricciones `CHECK` de la tabla lo exigen: un suministro de luz no puede tener tipo de instalación de gas, ni uno de gas potencia.
+- **Decimales con punto** (`7.5`): en SQL la coma separa valores, así que `7,5` serían dos valores.
+- **Comillas simples para datos, dobles para nombres.** El primer intento usó `"INDIVIDUAL"` y PostgreSQL respondió `column "INDIVIDUAL" does not exist`: con comillas dobles (o sin comillas), una palabra se interpreta como el nombre de una columna. Los textos van entre comillas simples; los números, `NULL` y los nombres de columnas, sin ellas.
+- Cuando una instrucción falla, PostgreSQL la rechaza entera: no quedan filas a medias y se puede corregir y repetir.
+
+### 9.4. Cómo se probó
+
+Con tres tablas y cuatro casos, la consulta se hizo con un bucle en la consola, que pide las tres tablas y muestra cuántas filas llegan de cada una:
+
+```js
+for (const t of ["fondos", "activos", "suministros"]) { const r = await clienteSupabase.from(t).select("*"); console.log(t, r.data.length, r.error); }
+```
+
+| Quién pide | Permisos | fondos | activos | suministros |
+|---|---|---|---|---|
+| Admin | ninguno | 3 | 3 | 4 |
+| Lector | FONDOS, SUMINISTROS | 3 | 0 | 4 |
+| Editor | ACTIVOS | 0 | 3 | 0 |
+| Sin sesión | — | 0 | 0 | 0 |
+
+Las 12 consultas devolvieron `error: null`. Cada tabla responde solo a su sección, de forma independiente.
+
+**Sobre la consola:** el navegador muestra un aviso de que hay estafadores que piden a la gente pegar código ahí, porque ese código actúa con su sesión. Es la razón de fondo de todo el proyecto: la página no es una barrera de seguridad, cualquiera puede ejecutar lo que quiera desde la consola. La barrera es el RLS, que solo deja ver lo que el usuario tiene permitido, venga la petición de donde venga.
+
+### 9.5. Pregunta previsible: "¿El lector ve suministros sin ver los activos?"
+
+Sí, y es intencionado. El permiso es **por sección** (a qué partes de la aplicación entra cada usuario), no por la relación entre los datos. El lector ve los suministros con su `activo_id`, pero no la dirección del activo, porque no tiene la sección `ACTIVOS`.
+
+Restringir qué filas ve cada usuario según los datos (por ejemplo, solo los activos de ciertos fondos, o solo los suministros de los activos que puede ver) es el **permiso por datos**, que se dejó deliberadamente como ampliación al cerrar el alcance de la versión mínima (sección 2).
+
 ---
 
-*Próxima sección pendiente: el mismo patrón de acceso por sección para `activos` y `suministros`.*
+*Próxima sección pendiente: escritura del EDITOR (`INSERT` / `UPDATE`) en sus secciones.*
