@@ -690,6 +690,116 @@ Sí, y es intencionado. El permiso es **por sección** (a qué partes de la apli
 
 Restringir qué filas ve cada usuario según los datos (por ejemplo, solo los activos de ciertos fondos, o solo los suministros de los activos que puede ver) es el **permiso por datos**, que se dejó deliberadamente como ampliación al cerrar el alcance de la versión mínima (sección 2).
 
+## 10. Escritura del EDITOR
+
+Hasta aquí todas las políticas eran de lectura (`SELECT`). Esta pieza abre la escritura según el diseño de roles (sección 2):
+
+- **EDITOR** — crea y modifica, pero solo en las secciones que tiene asignadas.
+- **ADMIN** — crea y modifica en todas.
+- **LECTOR** — nunca escribe.
+- **Borrar** (`DELETE`) no se abre a nadie desde la aplicación: sin política, queda denegado para todos.
+
+### 10.1. Por qué no sirve `tiene_seccion` para escribir
+
+`privado.tiene_seccion` (sección 8) solo comprueba si el usuario **tiene la sección**, no qué rol tiene. Para leer es correcto, pero el lector tiene secciones asignadas: si las políticas de escritura usaran esa función, el lector podría crear y modificar fondos. Hace falta una función hermana que, además, exija el rol `EDITOR`.
+
+### 10.2. Las migraciones ya ejecutadas no se editan
+
+La función nueva no se añade al archivo 009: va en una migración nueva. Cada migración es un apunte en un registro de cambios ya aplicados, en orden. Editar una ya ejecutada no cambiaría la base de datos (ese archivo ya corrió), solo el texto del repositorio, y el repositorio dejaría de contar lo que de verdad pasó: reconstruir la base de datos desde cero daría un resultado distinto al real. **Lo que ya se ejecutó no se toca; cualquier cambio va en un archivo nuevo.**
+
+### 10.3. La migración
+
+Archivo `supabase/migraciones/011_escritura_editor_seccion.sql`:
+
+```sql
+CREATE FUNCTION privado.puede_escribir(seccion_pedida text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT privado.es_admin() OR EXISTS (
+    SELECT 1
+    FROM public.permisos_seccion AS ps
+    JOIN public.perfiles AS p ON p.id = ps.perfil_id
+    WHERE ps.perfil_id = auth.uid()
+        AND ps.seccion = seccion_pedida
+        AND p.activo
+        AND p.rol = 'EDITOR'
+  );
+$$;
+
+CREATE POLICY "Creación de fondos por sección"
+ON public.fondos
+FOR INSERT
+TO authenticated
+WITH CHECK ((select privado.puede_escribir('FONDOS')));
+
+CREATE POLICY "Modificación de fondos por sección"
+ON public.fondos
+FOR UPDATE
+TO authenticated
+USING ((select privado.puede_escribir('FONDOS')))
+WITH CHECK ((select privado.puede_escribir('FONDOS')));
+
+-- Las mismas dos políticas para activos ('ACTIVOS') y suministros ('SUMINISTROS').
+```
+
+- **`AND p.rol = 'EDITOR'`** — la única diferencia con `tiene_seccion`. `rol` es texto, así que necesita la comparación; `activo` es `BOOLEAN` y puede ir sola (sección 7.4). El admin sigue entrando por `es_admin()`, sin necesitar el rol EDITOR ni permisos asignados.
+
+### 10.4. `USING` frente a `WITH CHECK`
+
+Al escribir aparecen dos preguntas distintas:
+
+- **`USING`** — *qué filas existentes puedes tocar*. Es lo que llevaban todas las políticas de lectura.
+- **`WITH CHECK`** — *cómo pueden quedar las filas después de tu cambio*. Se comprueba sobre la fila nueva o modificada.
+
+Cada operación usa lo que necesita:
+
+| Operación | Fila antes | Fila después | Lleva |
+|---|---|---|---|
+| `INSERT` | no existe | la nueva | solo `WITH CHECK` |
+| `UPDATE` | la existente | la modificada | `USING` y `WITH CHECK` |
+
+Aquí las dos condiciones son iguales, porque el permiso es por sección y no depende del contenido de la fila. Con permisos por datos (ampliación) se separarían: por ejemplo, `USING` "es un activo de mis fondos" y `WITH CHECK` "y sigue siéndolo después del cambio", para que nadie mueva un activo a un fondo ajeno.
+
+### 10.5. Otra vez la trampa del `ON`
+
+Las cuatro políticas de `activos` y `suministros` se escribieron copiando las de `fondos` y, como en la sección 9.2, se quedaron con `ON public.fondos`. Se detectó en la revisión. Esta vez el efecto habría sido peor: el editor, con solo `ACTIVOS`, habría podido **crear y modificar fondos**.
+
+Al copiar, la atención va a lo que cambia (nombre y sección) y salta lo que parece igual. La solución no es "fijarse más", sino una comprobación mecánica: **buscar `ON public.` con Ctrl+F en el editor y contar** que salen dos de cada tabla.
+
+### 10.6. Cómo se probó
+
+Desde la consola, con las órdenes de escritura de la librería:
+
+```js
+await clienteSupabase.from("activos").insert({ codigo: "ACT-004", direccion: "Calle del Editor 1", municipio: "Madrid", fondo_id: 1, estado: "COMPRA" })
+await clienteSupabase.from("activos").update({ estado: "EN VENTA" }).eq("codigo", "ACT-001").select()
+```
+
+- **`{ columna: valor, ... }`** es un *objeto* de JavaScript: el equivalente a la lista de columnas y `VALUES` de SQL, con cada nombre junto a su valor.
+- **Comillas:** en JavaScript los textos pueden ir entre comillas dobles. En SQL, no: allí las dobles son para nombres (sección 9.3). Cada lenguaje tiene sus reglas.
+- **`.select()` al final del `update`** devuelve las filas que se modificaron de verdad. Es la forma de ver si un `UPDATE` hizo algo.
+
+| Quién | Orden | Resultado |
+|---|---|---|
+| Editor (ACTIVOS) | Crear activo | `201` (creado) |
+| Editor | Modificar ACT-001 | 1 fila modificada |
+| Editor | Crear fondo | `403` denegado |
+| Lector (FONDOS, SUMINISTROS) | Crear fondo | `403` denegado |
+| Lector | Modificar fondo 1 | 0 filas, `error: null` |
+| Admin | Crear fondo | `201` |
+| Sin sesión | Crear fondo | `401` denegado |
+
+**Las dos pruebas del lector son las decisivas:** tiene la sección `FONDOS` y ve los fondos, pero no puede ni crearlos ni modificarlos. Demuestran que el rol se comprueba de verdad.
+
+**Cómo se ve un "no" en cada caso:**
+- Un **`INSERT` denegado da error**: la fila nueva no pasa el `WITH CHECK`.
+- Un **`UPDATE` denegado no da error**: el `USING` hace que, para ese usuario, no haya ninguna fila que modificar, así que no cambia nada y la respuesta es correcta, con 0 filas. Por eso hace falta el `.select()` para comprobarlo.
+- **`401` frente a `403`**: 401 (*Unauthorized*) significa "no sé quién eres": no hay sesión. 403 (*Forbidden*) significa "sé quién eres, pero no puedes": hay sesión, pero no permiso.
+
 ---
 
-*Próxima sección pendiente: escritura del EDITOR (`INSERT` / `UPDATE`) en sus secciones.*
+*Próxima sección pendiente: `registro_actividad` (solo se añade, nadie escribe directamente y solo el ADMIN lee).*
