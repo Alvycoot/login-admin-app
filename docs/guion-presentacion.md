@@ -800,6 +800,77 @@ await clienteSupabase.from("activos").update({ estado: "EN VENTA" }).eq("codigo"
 - Un **`UPDATE` denegado no da error**: el `USING` hace que, para ese usuario, no haya ninguna fila que modificar, así que no cambia nada y la respuesta es correcta, con 0 filas. Por eso hace falta el `.select()` para comprobarlo.
 - **`401` frente a `403`**: 401 (*Unauthorized*) significa "no sé quién eres": no hay sesión. 403 (*Forbidden*) significa "sé quién eres, pero no puedes": hay sesión, pero no permiso.
 
+## 11. Registro de actividad — solo el ADMIN lee
+
+`registro_actividad` es el diario de la aplicación: quién crea o modifica qué, quién entra y quién intenta entrar donde no debe. Para ser fiable tiene que cumplir tres reglas:
+
+1. **Solo el ADMIN lo lee.**
+2. **Nadie escribe en él directamente.** Si un usuario pudiera insertar, podría inventarse entradas; solo escribirán disparadores y funciones propias (próxima sección).
+3. **Solo se añade (append-only):** ni `UPDATE` ni `DELETE`.
+
+### 11.1. Dos de las tres reglas ya se cumplen solas
+
+La tabla se creó con RLS activado y sin políticas (migración 006), y RLS sin políticas lo cierra todo. Mientras no se cree ninguna política de `INSERT`, `UPDATE` o `DELETE`, nadie puede escribir, modificar ni borrar desde la aplicación. Solo hay que **abrir la lectura al admin**; lo demás se queda cerrado a propósito.
+
+### 11.2. La migración
+
+Archivo `supabase/migraciones/012_registro_actividad_lectura_admin.sql`:
+
+```sql
+CREATE POLICY "Solo el admin lee el registro de actividad"
+ON public.registro_actividad
+FOR SELECT
+TO authenticated
+USING ((select privado.es_admin()));
+```
+
+- **Solo una política, sin funciones nuevas:** `privado.es_admin()` existe desde la migración 008. El primer borrador copió la 008 entera (esquema, función y política), y habría fallado: el esquema ya existía, la función también (`function already exists`), y la política apuntaba a `perfiles` con un nombre ya usado.
+- **Los paréntesis del `USING`:** son dos capas. Los de fuera son del `USING`; los de dentro, de la subconsulta `(select ...)`, que es el truco de rendimiento de la sección 8. Una función sin `select` no necesita los suyos: `USING ((select privado.es_admin()))`.
+- **El `ON`, otra vez:** el primer borrador decía `ON public.perfiles`. Es la tercera vez que se cuela la tabla de la plantilla copiada (secciones 9.2 y 10.5).
+
+### 11.3. Datos de prueba y la llave maestra
+
+La tabla estaba vacía, y con 0 filas no se distingue "la política funciona" de "no hay nada". Se insertaron dos filas desde el SQL Editor (el editor crea un activo, el lector consulta fondos), buscando cada `perfil_id` por rol con una subconsulta, porque `perfiles` no guarda el correo:
+
+```sql
+INSERT INTO public.registro_actividad (perfil_id, accion, seccion, registro_id, detalle)
+VALUES
+  ((SELECT id FROM public.perfiles WHERE rol = 'EDITOR' LIMIT 1),
+   'CREACION', 'ACTIVOS', 4, '{"nota": "fila de prueba"}'),
+  ((SELECT id FROM public.perfiles WHERE rol = 'LECTOR' LIMIT 1),
+   'CONSULTA', 'FONDOS', NULL, '{"nota": "fila de prueba"}');
+```
+
+- **`id` y `ocurrido_en` no se escriben:** los rellenan `GENERATED ALWAYS AS IDENTITY` y `DEFAULT now()`. La hora se guarda en UTC (`+00`), y cada cliente la convierte a la suya.
+- **`detalle` es `JSONB`:** un cajón flexible para información extra sin crear columnas.
+- **El SQL Editor responde "Success. No rows returned" también a un `INSERT`:** se refiere a que no devuelve filas que mostrar, no a que no haya insertado. El `INSERT` se ejecutó dos veces por eso, y los duplicados se borraron con `DELETE ... WHERE id IN (3, 4)`. Para saber qué pasó, se comprueba con un `SELECT`.
+
+**¿Por qué el SQL Editor puede insertar (y borrar) si no hay políticas?** Porque entra como `postgres`, el dueño de la base de datos, y RLS no se aplica al dueño. Las políticas son las tarjetas de acceso de los empleados; el SQL Editor es la llave maestra. Por eso los datos de prueba se meten desde ahí, y por eso **las pruebas de verdad se hacen desde la página**, con la sesión de cada usuario. En una empresa real, el acceso al SQL Editor lo tendrían muy pocas personas: el append-only protege el registro de los usuarios de la aplicación, no del dueño.
+
+### 11.4. Cómo se probó
+
+```js
+await clienteSupabase.from("registro_actividad").select("*")
+```
+
+| Quién | Esperado | Resultado |
+|---|---|---|
+| Admin | 2 | 2 |
+| Editor | 0 | 0 |
+| Lector | 0 | 0 |
+| Sin sesión | 0 | 0 |
+
+Todas con `error: null` y `status: 200`: una lectura denegada no da error, solo filtra filas (sección 8).
+
+**La trampa de la sesión guardada:** la primera prueba "sin sesión" devolvió 2 filas. No era un agujero: Supabase guarda la sesión en el navegador (`localStorage`), y recargar la página vacía el formulario pero **no cierra la sesión**. Se comprobó quién tenía la sesión y se cerró de verdad antes de repetir:
+
+```js
+(await clienteSupabase.auth.getSession()).data.session?.user.email   // 'admin.prueba@ejemplo.com'
+await clienteSupabase.auth.signOut()
+```
+
+Tras el `signOut()`, 0 filas. **Para probar "sin sesión", `signOut()`; recargar no basta.**
+
 ---
 
-*Próxima sección pendiente: `registro_actividad` (solo se añade, nadie escribe directamente y solo el ADMIN lee).*
+*Próxima sección pendiente: los disparadores que escriben en `registro_actividad` cada vez que se crea o modifica un fondo, activo o suministro (`SECURITY DEFINER`).*
