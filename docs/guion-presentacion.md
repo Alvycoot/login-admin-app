@@ -871,6 +871,127 @@ await clienteSupabase.auth.signOut()
 
 Tras el `signOut()`, 0 filas. **Para probar "sin sesión", `signOut()`; recargar no basta.**
 
+## 12. Registro de actividad — los disparadores
+
+La sección 11 abrió la lectura al admin, pero el registro no se rellenaba solo. Esta pieza hace que cada creación o modificación de un fondo, activo o suministro se apunte automáticamente, sin que la página tenga que hacer nada.
+
+### 12.1. Qué es un disparador
+
+Un **disparador** (*trigger*) es una orden que la base de datos ejecuta sola cuando pasa algo en una tabla, como un sensor de movimiento. Tiene dos partes:
+
+1. **Una función:** qué hacer (insertar una fila en el registro).
+2. **El disparador:** cuándo hacerlo (después de cada `INSERT` o `UPDATE` en una tabla).
+
+**La clave de seguridad:** el usuario que crea un activo no tiene permiso para escribir en el registro (no hay políticas de `INSERT`, sección 11.1). La función es `SECURITY DEFINER`: se ejecuta con los permisos de su dueño, así que el sistema escribe en nombre del usuario, y solo lo que la función decide. Resultado: nadie puede manipular el registro, pero se rellena solo.
+
+### 12.2. La función
+
+Archivo `supabase/migraciones/013_registro_actividad_disparadores.sql`:
+
+```sql
+CREATE FUNCTION privado.apuntar_actividad()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    INSERT INTO public.registro_actividad (perfil_id, accion, seccion, registro_id)
+    VALUES (
+        auth.uid(),
+        CASE TG_OP WHEN 'INSERT' THEN 'CREACION' ELSE 'MODIFICACION' END,
+        TG_ARGV[0],
+        NEW.id
+    );
+
+    RETURN NEW;
+END;
+$$;
+```
+
+- **`RETURNS trigger`:** un tipo especial; solo la puede llamar un disparador.
+- **`LANGUAGE plpgsql`:** las funciones anteriores eran una sola consulta (`sql`). Esta hace varias cosas en orden (comprobar, insertar, devolver), así que usa `plpgsql`, el "SQL con pasos", con el cuerpo entre `BEGIN` y `END;`.
+- **`NEW`:** la fila tal como queda después del cambio. `NEW.id` es el `id` de la fila creada o modificada.
+- **`TG_OP`:** la operación que activó el disparador (`'INSERT'` o `'UPDATE'`). El `CASE` la traduce a las palabras del registro.
+- **`TG_ARGV[0]`, la sección como parámetro:** en lugar de una función por tabla, una sola que recibe la sección de cada disparador. Los argumentos de un disparador no se declaran en los paréntesis de la función: llegan por `TG_ARGV`.
+- **`RETURN NEW;`:** un disparador debe devolver algo; en uno que va "después", el valor no cuenta, pero la costumbre es devolver `NEW`.
+
+**La trampa prevista: el `IF` inicial.** `perfil_id` es `NOT NULL`. Desde el SQL Editor no hay usuario con sesión y `auth.uid()` es `NULL`: el `INSERT` en el registro fallaría y, como un error deshace todo, también se desharía el cambio en la tabla. El dueño no podría tocar nada desde el SQL Editor. El `IF` deja pasar el cambio sin apuntarlo: lo que hace el dueño con la llave maestra no es actividad de la aplicación.
+
+**Fallos del primer borrador, todos de escritura:** `auth.id()` en lugar de `auth.uid()`; el nombre de la columna (`perfil_id`) dentro de `VALUES`, cuando ahí va el valor (la primera lista son las etiquetas del formulario y `VALUES` lo que se escribe en cada casilla); dos comas que faltaban entre valores; y `TG_ARV` en lugar de `TG_ARGV` (*ARGument Vector*).
+
+### 12.3. El disparador
+
+```sql
+CREATE TRIGGER apuntar_actividad_activos
+AFTER INSERT OR UPDATE
+ON public.activos
+FOR EACH ROW
+EXECUTE FUNCTION privado.apuntar_actividad('ACTIVOS');
+```
+
+- **`AFTER`:** después del cambio, cuando `NEW.id` ya existe.
+- **`FOR EACH ROW`:** una vez por cada fila cambiada. Si un `UPDATE` no toca ninguna fila (por ejemplo, porque RLS la oculta), no se dispara.
+- **`('ACTIVOS')`:** el valor que llega a `TG_ARGV[0]`. Tiene que coincidir con el `CHECK` de la columna `seccion` (migración 006).
+
+Dos fallos del primer borrador, ambos instructivos:
+
+- **`AFTER 'CREACION' OR 'MODIFICACION'`:** mezclaba dos idiomas. `'CREACION'` es un dato propio (texto entre comillas que se guarda en `accion`); `AFTER` pide operaciones del lenguaje SQL: `INSERT`, `UPDATE`, sin comillas. La traducción de uno a otro la hace el `CASE` de la función.
+- **`ON public.registro_actividad`:** el `ON` dice qué tabla se vigila. Un disparador sobre `registro_actividad` que inserta en `registro_actividad` se activaría con su propia inserción, una y otra vez, hasta que Postgres lo cortara con `stack depth limit exceeded`. **Un disparador nunca debe vigilar la tabla en la que escribe.**
+
+### 12.4. Las otras dos tablas: una migración nueva
+
+La 013 ya se había ejecutado, así que los disparadores de `fondos` y `suministros` no se añaden a ella (sección 10.2): van en `014_registro_actividad_disparadores_fondos_suministros.sql`, que solo lleva dos `CREATE TRIGGER`. La función se reutiliza tal cual gracias a `TG_ARGV`:
+
+```sql
+CREATE TRIGGER apuntar_actividad_suministros
+AFTER INSERT OR UPDATE
+ON public.suministros
+FOR EACH ROW
+EXECUTE FUNCTION privado.apuntar_actividad('SUMINISTROS');
+
+CREATE TRIGGER apuntar_actividad_fondos
+AFTER INSERT OR UPDATE
+ON public.fondos
+FOR EACH ROW
+EXECUTE FUNCTION privado.apuntar_actividad('FONDOS');
+```
+
+Al copiar un disparador hay tres sitios que cambiar: el nombre, la tabla del `ON` y la sección.
+
+### 12.5. Cómo se probó
+
+Primero, un cambio desde el SQL Editor (`UPDATE public.fondos SET iban = 'ES00 PRUEBA EDITOR SQL' WHERE id = 2;`). Después, desde la consola: el editor crea ACT-005 y modifica ACT-001; el lector intenta modificar ACT-002 (0 filas); el admin modifica el fondo 1, da de alta la luz de ACT-005 y cambia la potencia del suministro de luz de ACT-002. El registro se revisó con:
+
+```js
+console.table((await clienteSupabase.from("registro_actividad").select("*")).data)
+```
+
+`console.table` dibuja la lista de filas como una tabla, una columna por campo.
+
+| id | Quién | accion | seccion | registro_id |
+|---|---|---|---|---|
+| 5 | Editor | CREACION | ACTIVOS | 5 (ACT-005) |
+| 6 | Editor | MODIFICACION | ACTIVOS | 1 (ACT-001) |
+| 7 | Admin | MODIFICACION | FONDOS | 1 |
+| 8 | Admin | CREACION | SUMINISTROS | 5 (luz de ACT-005) |
+| 9 | Admin | MODIFICACION | SUMINISTROS | 3 (luz de ACT-002) |
+
+- **El editor no puede leer ni escribir el registro, pero sus acciones quedan apuntadas** con su `perfil_id`.
+- **El `update` denegado del lector no dejó rastro:** tocó 0 filas, así que el disparador no tuvo con qué dispararse. (Apuntar los intentos denegados, `ACCESO_DENEGADO`, queda para una pieza posterior.)
+- **El cambio del SQL Editor se hizo pero no se apuntó:** se comprobó con `select("id, nombre, iban")` que el fondo 2 tenía el IBAN nuevo, y no hay ninguna fila suya en el registro.
+
+### 12.6. Lo que cuentan los `id`
+
+- **Los `id` del registro saltan del 2 al 5:** el 3 y el 4 eran duplicados de prueba borrados con la llave maestra. `IDENTITY` nunca reutiliza un número, así que **un hueco en el registro delata un borrado**.
+- **Del 6 al 7 no hay hueco:** si el disparador hubiera intentado apuntar el cambio del SQL Editor y hubiera fallado, habría gastado un número. Salió por el `IF` antes de intentarlo.
+- **"FONDO DEL ADMIN" tiene el `id` 6, no el 4:** los intentos de crear fondos denegados del editor y el lector (sección 10.6) gastaron números. `IDENTITY` reparte el número antes de comprobar los permisos; si la fila se rechaza, el número se pierde.
+- **Sin `ORDER BY` no hay orden garantizado:** la consulta de fondos devolvió 3, 6, 2, 1; las filas modificadas se fueron al final.
+
 ---
 
-*Próxima sección pendiente: los disparadores que escriben en `registro_actividad` cada vez que se crea o modifica un fondo, activo o suministro (`SECURITY DEFINER`).*
+*Próxima sección pendiente: `LOGIN`, `LOGOUT` y `ACCESO_DENEGADO`, apuntados mediante una función a la que llama la página.*
