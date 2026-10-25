@@ -992,6 +992,116 @@ console.table((await clienteSupabase.from("registro_actividad").select("*")).dat
 - **"FONDO DEL ADMIN" tiene el `id` 6, no el 4:** los intentos de crear fondos denegados del editor y el lector (sección 10.6) gastaron números. `IDENTITY` reparte el número antes de comprobar los permisos; si la fila se rechaza, el número se pierde.
 - **Sin `ORDER BY` no hay orden garantizado:** la consulta de fondos devolvió 3, 6, 2, 1; las filas modificadas se fueron al final.
 
+## 13. Registro de actividad — los inicios de sesión
+
+Los disparadores de la sección 12 vigilan cambios en tablas. Entrar en la aplicación no cambia ninguna tabla nuestra, así que `LOGIN`, `LOGOUT` y `ACCESO_DENEGADO` necesitaban otro camino.
+
+### 13.1. La decisión: qué apuntar y desde dónde
+
+La opción sencilla era una función a la que llamara la página al entrar. Pero la página no es una barrera (sección 9.4): un usuario podría entrar sin que su página avisara, o llamar a la función para apuntar entradas falsas. Un registro que depende de que el usuario colabore es "de buena fe".
+
+Se eligió un término medio:
+
+- **`LOGIN`:** desde la propia base de datos, con un disparador sobre las tablas de Supabase Auth. Es lo importante de auditar, y así es fiable.
+- **`LOGOUT`:** queda como ampliación. La gente cierra la pestaña sin salir, así que un `LOGOUT` no prueba nada.
+- **`ACCESO_DENEGADO`:** queda como ampliación. RLS no da error al denegar una lectura (sección 8): filtra filas, así que no hay nada que capturar sin complicar mucho el sistema.
+
+Supabase restringió en abril de 2025 lo que se puede crear dentro del esquema `auth` (tablas y funciones no), pero mantiene permitidos los disparadores sobre sus tablas. Las funciones siguen en nuestro esquema `privado`.
+
+### 13.2. Primer intento (migración 015): `last_sign_in_at`
+
+`auth.users` tiene una columna, `last_sign_in_at`, que Supabase actualiza en cada inicio de sesión. El disparador vigilaba solo esa columna:
+
+```sql
+CREATE TRIGGER apuntar_login
+AFTER UPDATE OF last_sign_in_at ON auth.users
+FOR EACH ROW
+EXECUTE FUNCTION privado.apuntar_login();
+```
+
+`UPDATE OF columna` hace que salte solo cuando cambia esa columna. La función, `privado.apuntar_login()`, tenía dos diferencias con la de la sección 12:
+
+- **`NEW.id` en lugar de `auth.uid()`:** `last_sign_in_at` no lo cambia el usuario, sino el servicio de Auth mientras procesa el login, cuando todavía no hay sesión. `auth.uid()` sería `NULL`. El usuario que entra es la propia fila que cambia.
+- **`IF NOT EXISTS` perfil:** un usuario de `auth.users` puede no tener fila en `perfiles`. El `INSERT` en el registro fallaría (`perfil_id` es una referencia a `perfiles`), el error desharía también la actualización de `auth.users` y **el login fallaría** ("Database error granting user"). Si no hay perfil, se deja pasar sin apuntar.
+
+Los fallos del primer borrador fueron otra vez de idioma: el `CHECK` entero de la tabla dentro de `VALUES` (ese `CHECK` es el menú de valores permitidos, pero en cada fila va uno solo), `auth.users(id)` para referirse al usuario (dentro de un disparador, la fila es `NEW`) y la tabla del registro en el `UPDATE OF` (ahí va una columna de la tabla vigilada).
+
+### 13.3. El fallo: las renovaciones también contaban
+
+La prueba con los tres usuarios dio un `LOGIN` de más: el del admin, 7 segundos antes que el del lector. La pista estaba en cómo se hizo la prueba: se recargó la página con Ctrl+F5.
+
+- **Hipótesis:** la sesión del admin seguía guardada en el navegador (sección 11.4), con el pase caducado. Al cargar, la librería la renovó sola. Si la renovación toca `last_sign_in_at`, el disparador la apunta como `LOGIN`.
+- **Comprobación:** con el admin, se forzó una renovación (`await clienteSupabase.auth.refreshSession()`) y apareció otro `LOGIN`. Confirmado, aunque los foros decían lo contrario: **la prueba manda sobre lo que pone en internet**.
+
+El efecto habría sido grave: una pestaña abierta renueva su pase cada hora, así que cada usuario habría generado un `LOGIN` falso por hora. El registro habría contado renovaciones, no entradas.
+
+### 13.4. La corrección (migración 016): una sesión nueva = un login
+
+Supabase guarda cada sesión en `auth.sessions`: al entrar se crea una fila nueva; al renovar el pase, la sesión es la misma y no se crea ninguna. La pregunta correcta no es "¿ha cambiado `last_sign_in_at`?", sino "¿ha nacido una sesión?":
+
+```sql
+DROP TRIGGER apuntar_login ON auth.users;
+
+CREATE FUNCTION privado.apuntar_inicio_sesion()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM public.perfiles WHERE id = NEW.user_id) THEN
+        RETURN NEW;
+    END IF;
+
+    INSERT INTO public.registro_actividad (perfil_id, accion)
+    VALUES (NEW.user_id, 'LOGIN');
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER apuntar_inicio_sesion
+AFTER INSERT ON auth.sessions
+FOR EACH ROW
+EXECUTE FUNCTION privado.apuntar_inicio_sesion();
+
+DROP FUNCTION privado.apuntar_login();
+```
+
+- **`NEW.user_id`:** en `auth.sessions` cada fila es una sesión, así que `NEW.id` es el id de la sesión. El usuario está en `user_id`. **El `ON` dice de qué tabla viene `NEW`**, y la función y el disparador tienen que hablar de la misma tabla.
+- **La plantilla del disparador:** `AFTER <operación de SQL> ON <esquema.tabla>`. En la operación solo caben palabras del SQL (`INSERT`, `UPDATE`, `DELETE`), nunca etiquetas propias como `LOGIN`. En la tabla solo cabe un nombre de tabla, nunca un dato como `NEW.user_id`.
+- **El orden de los `DROP`:** la función vieja solo se puede borrar después de quitar el disparador que la usa (`cannot drop function ... because other objects depend on it`).
+- **La 015 no se edita:** ya se había ejecutado (sección 10.2). La corrección va en una migración nueva.
+- **El aviso del SQL Editor:** ante un `DROP` o un `DELETE`, Supabase avisa con "Potential issue detected". Hay que revisar que cada uno sea intencionado: aquí solo se borraba código (un disparador y una función), ningún dato.
+- **Marcha atrás preparada:** como el disparador está dentro del proceso de login, antes de ejecutarlo se tuvo a mano `DROP TRIGGER apuntar_inicio_sesion ON auth.sessions;` por si algún login fallaba.
+
+### 13.5. Cómo se probó
+
+Se recargó con Ctrl+F5 (con el pase del admin caducado desde hacía casi dos horas, el mismo escenario que creó el primer `LOGIN` falso), se entró con lector, editor y admin, y con el admin se forzó un `refreshSession()`:
+
+| Qué | Resultado |
+|---|---|
+| Ctrl+F5 con sesión guardada caducada | nada apuntado |
+| Login del lector | `LOGIN` |
+| Login del editor | `LOGIN` |
+| Login del admin | `LOGIN` |
+| `refreshSession()` | nada apuntado |
+| Contraseña equivocada (probado con la 015) | nada apuntado: Supabase responde `400` y no toca nada |
+
+### 13.6. Qué hacer con los `LOGIN` falsos
+
+La 015 dejó dos `LOGIN` falsos en el registro. Había tres opciones: borrarlos (deja un hueco en los `id`, que delata el borrado), dejarlos tal cual (el registro mentiría) o **dejarlos y anotarlos**. Se eligió la tercera, que es lo que se hace en auditoría: no se borra el error, se corrige dejando constancia. Desde el SQL Editor:
+
+```sql
+UPDATE public.registro_actividad
+SET detalle = '{"nota": "LOGIN falso: renovación del pase, disparador 015 retirado"}'
+WHERE id IN (10, 14) AND accion = 'LOGIN';
+```
+
+- **`AND accion = 'LOGIN'`:** un seguro de más. Al modificar datos a mano, el `WHERE` lleva una condición que proteja de equivocarse de fila.
+- **Es una excepción consciente al append-only:** la regla protege el registro de los usuarios de la aplicación. Esta corrección la hace el dueño con la llave maestra, y no queda apuntada en el registro. Por eso la nota explica qué pasó.
+- Se comprobó con un `SELECT ... ORDER BY id`: la nota solo está en esas dos filas. Si se quiere un orden, hay que pedirlo (sección 12.6).
+
 ---
 
-*Próxima sección pendiente: `LOGIN`, `LOGOUT` y `ACCESO_DENEGADO`, apuntados mediante una función a la que llama la página.*
+*Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
