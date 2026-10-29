@@ -1102,6 +1102,111 @@ WHERE id IN (10, 14) AND accion = 'LOGIN';
 - **Es una excepción consciente al append-only:** la regla protege el registro de los usuarios de la aplicación. Esta corrección la hace el dueño con la llave maestra, y no queda apuntada en el registro. Por eso la nota explica qué pasó.
 - Se comprobó con un `SELECT ... ORDER BY id`: la nota solo está en esas dos filas. Si se quiere un orden, hay que pedirlo (sección 12.6).
 
+## 14. Registro de actividad — el valor anterior y el nuevo
+
+Con la sección 12, el registro decía "el editor modificó el activo 1", pero no qué cambió. Un auditor necesita saber también qué había antes y qué hay ahora. Esta pieza rellena la columna `detalle` (un `JSONB` creado en la migración 006 y sin usar hasta ahora) con el antes y el después de cada columna modificada:
+
+```json
+{"estado": {"antes": "EN OBRA", "despues": "EN VENTA"}}
+```
+
+### 14.1. Sustituir una función que ya existe
+
+La función `privado.apuntar_actividad()` de la 013 ya se había ejecutado, así que no se edita ese archivo (sección 10.2). La migración `017_registro_actividad_detalle_cambios.sql` la vuelve a escribir con **`CREATE OR REPLACE FUNCTION`**: sustituye el cuerpo y mantiene el nombre. Sin el `OR REPLACE`, Postgres respondería que la función ya existe.
+
+Los tres disparadores (secciones 12.3 y 12.4) no se tocan: llaman a la función por su nombre y, en cuanto se ejecuta la 017, usan la versión nueva.
+
+### 14.2. La función nueva
+
+```sql
+CREATE OR REPLACE FUNCTION privado.apuntar_actividad()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    cambios jsonb;
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        SELECT jsonb_object_agg(
+            despues.key,
+            jsonb_build_object('antes', antes.value, 'despues', despues.value)
+        )
+        INTO cambios
+        FROM jsonb_each(to_jsonb(NEW)) AS despues
+        JOIN jsonb_each(to_jsonb(OLD)) AS antes ON antes.key = despues.key
+        WHERE antes.value IS DISTINCT FROM despues.value;
+
+        IF cambios IS NULL THEN
+            RETURN NEW;
+        END IF;
+    END IF;
+
+    INSERT INTO public.registro_actividad (perfil_id, accion, seccion, registro_id, detalle)
+    VALUES (
+        auth.uid(),
+        CASE TG_OP WHEN 'INSERT' THEN 'CREACION' ELSE 'MODIFICACION' END,
+        TG_ARGV[0],
+        NEW.id,
+        cambios
+    );
+
+    RETURN NEW;
+END;
+$$;
+```
+
+- **`DECLARE cambios jsonb;`:** en `plpgsql`, las variables se declaran en un bloque `DECLARE` justo antes del `BEGIN`, con la forma `nombre tipo;`. Una variable sin asignar vale `NULL`.
+- **`OLD` y `NEW`:** `NEW` es la fila tal como queda y `OLD` como estaba antes. `OLD` solo tiene sentido en un `UPDATE` (en un `INSERT` no hay "antes"), por eso el cálculo va dentro de `IF TG_OP = 'UPDATE'`.
+- **`to_jsonb(OLD)`:** convierte la fila entera en un JSON (`{"id": 1, "codigo": "ACT-001", "estado": "EN OBRA", ...}`). Gracias a eso **la misma función sirve para las tres tablas sin nombrar ninguna columna**: si mañana se añade una columna a `activos`, sus cambios se apuntan sin tocar nada.
+- **`jsonb_each(...)`:** separa ese JSON en filas de dos columnas, `key` (el nombre de la columna) y `value` (su valor). Convierte una fila en una "tablita" que se puede consultar.
+- **El `JOIN` por `key`:** pone lado a lado el antes y el después de cada columna.
+- **`WHERE ... IS DISTINCT FROM ...`:** deja solo las columnas que cambiaron. Se usa en lugar de `<>` por los `NULL`: `NULL <> '2026-01-15'` no da verdadero, da `NULL`, y el `WHERE` descartaría la fila. Un dato que se rellena por primera vez (o que se borra) se perdería sin avisar. `IS DISTINCT FROM` trata `NULL` como un valor más.
+- **`jsonb_build_object('antes', ..., 'despues', ...)`:** fabrica el par de cada columna.
+- **`jsonb_object_agg(clave, valor)`:** junta todas las filas que quedan en un único JSON. **`INTO cambios`** guarda el resultado en la variable.
+- **`detalle` en el `INSERT`:** columnas y valores van emparejados por posición, así que `detalle` va al final de la lista de columnas y `cambios` al final de `VALUES`. En una creación, `cambios` nunca se asignó y `detalle` queda `NULL`: la fila nueva entera ya está en su tabla.
+
+### 14.3. La decisión: un guardado sin cambios no se apunta
+
+Un `UPDATE` puede escribir en una fila exactamente lo que ya tenía (por ejemplo, alguien pulsa "Guardar" sin tocar nada). Postgres lo cuenta como modificación y el disparador salta. Se decidió **no apuntarlo**: una modificación que no modifica nada solo mete ruido en el registro, y "solo se apuntan cambios reales" es una regla fácil de defender.
+
+La comprobación aprovecha un detalle de `jsonb_object_agg`: **si no le llega ninguna fila, no devuelve un JSON vacío (`{}`), sino `NULL`**. Por eso la pregunta es `IF cambios IS NULL`: si ninguna columna pasó el `WHERE`, la función sale sin insertar.
+
+### 14.4. Fallos del primer borrador
+
+- **`cambios, jsonb;`:** la coma sobraba. Con ella, Postgres lee dos nombres en vez de un nombre y su tipo.
+- **`IF TG_OP = ' UPDATE'`, con un espacio dentro de las comillas:** el más peligroso, porque **no da error**. `' UPDATE'` nunca es igual a `'UPDATE'`, así que el bloque no se habría ejecutado jamás y todo se habría apuntado como antes, sin `detalle`. Solo una prueba lo habría destapado.
+- **Las cláusulas en orden inverso** (`FROM` → `JOIN` → `WHERE` → `SELECT` → `INTO`): SQL exige `SELECT` → `INTO` → `FROM` → `JOIN` → `WHERE`.
+- **Faltaban el `;` de la consulta y el `END IF;` del `IF TG_OP`:** cada `IF` necesita su `END IF;`, y el `IF cambios IS NULL` va dentro del otro, porque solo tiene sentido después de calcular los cambios. Sangrarlo cuatro espacios más deja ver qué está dentro de qué.
+
+### 14.5. Cómo se probó
+
+Con el editor, desde la consola: cambio del estado de ACT-001 (de EN OBRA a EN VENTA); cambio de dos columnas a la vez (`municipio` y `fecha_compra`); alta de ACT-006. Después, con el admin: el mismo `update` del estado otra vez, sin cambios (respuesta `200` con 1 fila: el `UPDATE` ocurrió). El registro se leyó con:
+
+```js
+const { data: filas } = await clienteSupabase.from("registro_actividad").select("*").gt("id", 17).order("id")
+filas.forEach(f => console.log(f.id, f.accion, JSON.stringify(f.detalle)))
+```
+
+`console.table` corta las columnas largas, así que para ver el `detalle` entero se escribe una línea por fila. `JSON.stringify` convierte el objeto en texto legible (y pinta un `NULL` como `'null'`).
+
+| id | Quién | accion | detalle |
+|---|---|---|---|
+| 18 | Editor | LOGIN | — |
+| 19 | Editor | MODIFICACION | `{"estado":{"antes":"EN OBRA","despues":"EN VENTA"}}` |
+| 20 | Editor | MODIFICACION | `{"municipio":{"antes":"Madrid","despues":"Getafe"},"fecha_compra":{"antes":null,"despues":"2026-01-15"}}` |
+| 21 | Editor | CREACION | — (ACT-006, `registro_id` 6) |
+| 22 | Admin | LOGIN | — |
+
+- **Solo aparecen las columnas que cambiaron:** ni `codigo`, ni `direccion`, ni `creado_en`.
+- **`fecha_compra` pasó de `null` a una fecha y se apuntó:** es el caso que un `<>` habría perdido.
+- **El guardado sin cambios del admin no dejó rastro:** no hay fila 23.
+
 ---
 
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
