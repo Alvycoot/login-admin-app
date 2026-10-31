@@ -1209,4 +1209,106 @@ filas.forEach(f => console.log(f.id, f.accion, JSON.stringify(f.detalle)))
 
 ---
 
+## 15. Registro de actividad — las lecturas mediante funciones
+
+Los disparadores saltan con `INSERT`, `UPDATE` y `DELETE`, pero **en Postgres no existen disparadores de `SELECT`**. Hasta aquí, el registro sabía quién cambió qué, pero no quién miró qué. En una gestora de fondos, saber quién ha visto los datos de un fondo es justo lo que pide un auditor.
+
+### 15.1. La idea: una ventanilla
+
+En lugar de que la página lea las tablas directamente, pide los datos a una **función de la base de datos**, como quien pide en una ventanilla. La función comprueba el permiso, apunta la lectura en `registro_actividad` y devuelve los datos. En la página cambia la forma de pedir:
+
+```js
+// Antes: lectura directa de la tabla
+await clienteSupabase.from("activos").select("*").eq("id", 1)
+// Ahora: a través de la función
+await clienteSupabase.rpc("consultar_activo", { activo_id: 1 })
+```
+
+`rpc` (*Remote Procedure Call*) significa "ejecuta esta función de la base de datos y dame su resultado".
+
+Se registran dos acciones: **`CONSULTA`** (abrir un registro concreto, con su `registro_id`) y **`BUSQUEDA`** (buscar con un texto, una sola fila por búsqueda, con lo buscado en `detalle`).
+
+### 15.2. La decisión: ventanilla única
+
+Si las políticas de lectura de las secciones 8 y 9 siguen abiertas, cualquiera puede abrir la consola del navegador y leer con `from().select()` sin pasar por la función. El registro de lecturas sería "de buena fe", el mismo problema que se descartó con el `LOGIN` en la sección 13.
+
+Se eligió la **ventanilla única**: cuando estén todas las funciones de lectura, **se retiran las políticas de `SELECT`** y todo pasa por funciones. Como son `SECURITY DEFINER`, pueden leer las tablas aunque RLS las cierre, y por eso la comprobación de permisos se hace dentro de cada función.
+
+La consecuencia: un `UPDATE` que filtra por una columna (`.eq(...)`) o que devuelve filas también necesita la política de lectura. Al retirarla, las escrituras también tendrán que pasar por funciones. El orden es: `consultar_activo` → `buscar_activos` → las mismas para fondos y suministros → cerrar la lectura directa → funciones de escritura. A cambio, el registro no se puede saltar, y la página tiene un catálogo claro de operaciones, que es como se diseña una API.
+
+### 15.3. La primera función: `consultar_activo`
+
+Migración `018_funcion_consultar_activo.sql`:
+
+```sql
+CREATE FUNCTION public.consultar_activo(activo_id bigint)
+RETURNS SETOF public.activos
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    fila public.activos;
+BEGIN
+    IF NOT privado.tiene_seccion('ACTIVOS') THEN
+        RAISE EXCEPTION 'No tienes permiso para consultar activos';
+    END IF;
+
+    SELECT * INTO fila FROM public.activos WHERE id = activo_id;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    INSERT INTO public.registro_actividad (perfil_id, accion, seccion, registro_id)
+    VALUES (
+        auth.uid(),
+        'CONSULTA',
+        'ACTIVOS',
+        activo_id
+    );
+
+    RETURN NEXT fila;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.consultar_activo(bigint) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.consultar_activo(bigint) TO authenticated;
+```
+
+- **En `public` y no en `privado`:** `rpc` solo puede llamar a funciones del esquema `public`. Las funciones auxiliares (`tiene_seccion`, `es_admin`) siguen en `privado`, fuera del alcance de la página.
+- **`RETURNS SETOF public.activos`:** devuelve un conjunto de filas con la forma de la tabla. La página recibe una lista, igual que con `.select()`: con una fila si el activo existe y vacía si no.
+- **`fila public.activos;`:** una variable con la forma de una fila de `activos`, donde se guarda el activo mientras se apunta la consulta. El tipo se escribe solo al declararla; después se usa solo por su nombre.
+- **`RAISE EXCEPTION`:** corta la función con un error y deshace todo lo que haya hecho. Sin sesión, `auth.uid()` es nulo y `tiene_seccion` da falso, así que no hace falta una comprobación aparte. Por eso el `INSERT` nunca recibe un `perfil_id` nulo.
+- **`SELECT * INTO fila`:** dentro de una función no hay pantalla donde mostrar el resultado; `INTO` lo guarda en la variable. En el `WHERE`, `id` es la columna de la tabla y `activo_id` el número que manda la página.
+- **`FOUND`:** después de un `SELECT ... INTO`, Postgres lo pone a verdadero o falso según haya encontrado algo. Si el activo no existe, la función sale **sin apuntar nada**, para no llenar el registro de consultas a ids inexistentes.
+- **`RETURN NEXT fila`:** en una función `SETOF`, añade la fila al resultado. Un `RETURN` a secas termina sin añadir nada.
+- **`REVOKE` / `GRANT`:** en Supabase, cualquier función de `public` la puede llamar todo el mundo, también sin sesión (el rol `anon`). Aunque la comprobación interna ya lo frenaría, se cierra la puerta desde fuera: solo los usuarios con sesión (`authenticated`) pueden ejecutarla.
+
+### 15.4. Fallos del primer borrador
+
+- **`IF NOT EXISTS THEN`:** `EXISTS` es lo que usa `tiene_seccion` por dentro y siempre necesita una consulta detrás (`EXISTS (SELECT ...)`). Desde fuera basta con llamar a la función, que ya devuelve verdadero o falso.
+- **`INTO fila public.activos` y `RETURN NEXT fila public.activos`:** repetían el tipo detrás de la variable.
+- **`FROM search_path = ''`:** el `search_path` es un ajuste de la cabecera, no una tabla. Detrás de `FROM` va `public.activos`.
+- **`WHERE activo_id = 1`:** confundía la columna (`id`) con el parámetro (`activo_id`), y el `1` fijo habría devuelto siempre el mismo activo.
+- **En el `VALUES`:** `perfil_id` (el nombre de la columna) en lugar de su valor, `auth.uid()`; restos del `CASE` de la 017 detrás de `'CONSULTA'`; y la función llamándose a sí misma (`public.consultar_activo(...)`) en lugar del parámetro, lo que habría provocado un bucle sin fin.
+
+### 15.5. Cómo se probó
+
+Desde la consola de `login.html`, con cada usuario de prueba:
+
+| # | Usuario | Petición | Resultado |
+|---|---|---|---|
+| 1 | Editor (con ACTIVOS) | `activo_id: 1` | 1 fila (ACT-001), `200` |
+| 2 | Admin | `activo_id: 999` | `[]`, sin error, `200` |
+| 3 | Lector (sin ACTIVOS) | `activo_id: 1` | `400`, código `P0001`, "No tienes permiso para consultar activos" |
+| 4 | Admin | `activo_id: 1` | 1 fila (ACT-001), `200` |
+| 5 | Admin | lee el registro (`.eq("accion", "CONSULTA")`) | 2 filas de hoy, de perfiles distintos (editor y admin), con `registro_id` 1. Ninguna del lector ni del 999 |
+| 6 | Sin sesión (tras `signOut()`) | `activo_id: 1` | `401`, código `42501`, "permission denied for function consultar_activo" |
+
+- **El intento fallido del lector no dejó rastro:** el `RAISE EXCEPTION` deshizo la función entera.
+- **Dos capas distintas:** al lector lo frena la comprobación de dentro de la función (`P0001`, mensaje propio); al usuario sin sesión lo frena el `REVOKE` antes de entrar (`42501`, mensaje de Postgres).
+- **La política de lectura de la sección 9 sigue abierta** hasta que estén todas las funciones de lectura (sección 15.2).
+
+---
+
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
