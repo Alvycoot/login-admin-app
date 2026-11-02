@@ -1311,4 +1311,125 @@ Desde la consola de `login.html`, con cada usuario de prueba:
 
 ---
 
+## 16. Registro de actividad — las búsquedas
+
+La segunda ventanilla: la página manda un texto y recibe todos los activos que lo contengan. En el registro queda **una sola fila `BUSQUEDA` por búsqueda**, con lo que se buscó y cuántos resultados salieron:
+
+```js
+await clienteSupabase.rpc("buscar_activos", { texto: "Getafe" })
+```
+
+```json
+{"texto": "Getafe", "resultados": 2}
+```
+
+### 16.1. Tres decisiones de diseño
+
+1. **Se busca en `codigo`, `direccion` y `municipio`.** Así "ACT-001", "Ucrania" y "Getafe" encuentran lo esperado.
+2. **Las búsquedas sin resultados también se apuntan.** Es al revés que en `consultar_activo`, donde un id inexistente no se apunta, y es a propósito: pedir el activo 999 no dice nada, pero que alguien busque un texto y no encuentre nada sigue diciendo qué intentaba encontrar.
+3. **Un texto vacío da error.** Si no, `ILIKE '%%'` encajaría con todos los activos y la búsqueda se convertiría en "dame todo". Si la página necesita un listado completo, será una función aparte, con su propio nombre y su propio registro.
+
+Cada decisión tiene su precio, y se dejó anotado:
+
+- **La búsqueda:** `ILIKE` no ignora las tildes ("Malaga" no encuentra "Málaga"; se resolvería con la extensión `unaccent`). Los textos cortos encajan con mucho ("1"). `%` y `_` funcionan como comodines, así que buscar "%" lo devuelve todo. La referencia catastral queda fuera. Y un `ILIKE '%…%'` no usa índices normales, lo que no importa con este volumen (con decenas de miles de filas, la extensión `pg_trgm`).
+- **Apuntar las búsquedas vacías:** el registro crece más. **Consecuencia para la página: buscar al pulsar el botón o Enter, no a cada tecla**, o cada letra de "Getafe" dejaría su fila. El texto buscado queda guardado aunque sea sensible, aunque el registro solo lo lee el admin.
+- **El texto vacío:** solo frena "", no "a" ni "%". La defensa real contra alguien que intente sacarlo todo es que **cada búsqueda queda apuntada con su número de resultados**: una búsqueda con 300 resultados salta a la vista.
+
+Mejoras posibles, en una migración futura: escapar `%` y `_`, `unaccent`, una longitud mínima y ordenar los resultados (sección 16.5).
+
+### 16.2. La función
+
+Migración `019_funcion_buscar_activos.sql`:
+
+```sql
+CREATE FUNCTION public.buscar_activos(texto text)
+RETURNS SETOF public.activos
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    resultados integer;
+BEGIN
+    IF NOT privado.tiene_seccion('ACTIVOS') THEN
+        RAISE EXCEPTION 'No tienes permiso para buscar activos';
+    END IF;
+
+    IF texto IS NULL OR trim(texto) = '' THEN
+        RAISE EXCEPTION 'Escribe un texto para buscar';
+    END IF;
+
+    RETURN QUERY
+    SELECT * FROM public.activos
+    WHERE codigo ILIKE '%' || texto || '%'
+    OR direccion ILIKE '%' || texto || '%'
+    OR municipio ILIKE '%' || texto || '%';
+
+    GET DIAGNOSTICS resultados = ROW_COUNT;
+
+    INSERT INTO public.registro_actividad (perfil_id, accion, seccion, detalle)
+    VALUES (
+        auth.uid(),
+        'BUSQUEDA',
+        'ACTIVOS',
+        jsonb_build_object('texto', texto, 'resultados', resultados)
+    );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.buscar_activos(text) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.buscar_activos(text) TO authenticated;
+```
+
+Lo que comparte con `consultar_activo` (sección 15.3): la cabecera, la comprobación del permiso y el `REVOKE` / `GRANT`. Lo nuevo:
+
+- **`resultados integer;`:** aquí no hace falta guardar un activo, sino un número, el de resultados.
+- **`texto IS NULL OR trim(texto) = ''`:** dos formas de llegar vacío, que no llegue nada o que llegue en blanco. `trim` quita los espacios de los extremos, así que "   " también se rechaza.
+- **`ILIKE`:** compara con un patrón en el que `%` significa "cualquier cosa, o nada", así que `'%Getafe%'` es "que contenga Getafe". La `I` es de *insensitive*: no distingue mayúsculas.
+- **`'%' || texto || '%'`:** `||` pega textos, y fabrica el patrón a partir de lo que escribió el usuario. Postgres pega antes de comparar, así que no hacen falta paréntesis.
+- **`RETURN QUERY`:** añade al resultado todas las filas de la consulta de golpe (`RETURN NEXT` añadía una). **A pesar del nombre, no termina la función**: sigue con la línea siguiente, y el resultado se entrega al llegar al `END`. Por eso al final no hace falta ningún `RETURN`.
+- **`GET DIAGNOSTICS resultados = ROW_COUNT`:** lee cuántas filas tocó la última consulta. Va justo después del `RETURN QUERY`: si el `INSERT` fuera antes, `ROW_COUNT` diría 1, la fila del registro.
+- **`jsonb_build_object('texto', texto, 'resultados', resultados)`:** funciona por parejas de etiqueta y valor. `'texto'` con comillas es la etiqueta fija; `texto` sin comillas es el valor, lo que se buscó.
+- **Sin `registro_id`:** una búsqueda no es sobre un activo concreto, así que la columna no está en la lista y queda nula.
+
+### 16.3. Fallos del primer borrador
+
+- **`IF NOT texto IS NULL OR ...`:** el más peligroso, porque **no da error**. El `NOT` venía copiado de la comprobación del permiso, pero ahí la pregunta es "¿tiene permiso?" (error si no) y aquí es "¿está vacío?" (error si sí). Con el `NOT` se habrían rechazado todas las búsquedas normales. Truco: leer la condición en voz alta.
+- **`nombre tipo;`:** el molde de la declaración, copiado literal.
+- **`rim(texto)`** por `trim(texto)`, y un resto de `('ACTIVOS')` pegado detrás.
+- **`registro_id` en vez de `detalle`** en la lista de columnas del `INSERT`: el JSON habría ido a parar a una columna numérica. Tampoco habría dado error al crear la función, porque **`plpgsql` no comprueba si cada valor encaja en su columna hasta que la función se ejecuta**. Un "Success" al crearla solo dice que está bien escrita.
+
+### 16.4. Cómo se probó
+
+| # | Usuario | `texto` | Resultado |
+|---|---|---|---|
+| 1 | Editor | `"getafe"` | 1 fila (ACT-001, municipio "Getafe"): no distingue mayúsculas |
+| 2 | Editor | `"ACT"` | 6 filas (ACT-001 a ACT-006) |
+| 3 | Editor | `"zzz"` | `[]`, sin error |
+| 4 | Editor | `" "` | `400`, `P0001`, "Escribe un texto para buscar" |
+| 5 | Lector (sin ACTIVOS) | `"getafe"` | `400`, `P0001`, "No tienes permiso para buscar activos" |
+| 6 | Admin | lee el registro | 3 filas `BUSQUEDA` del editor (abajo) |
+| 7 | Sin sesión | `"getafe"` | `401`, `42501`, "permission denied for function buscar_activos" |
+
+```js
+const { data: filas } = await clienteSupabase.from("registro_actividad").select("*").eq("accion", "BUSQUEDA")
+filas.forEach(f => console.log(f.id, f.perfil_id, JSON.stringify(f.detalle)))
+```
+
+| id | detalle |
+|---|---|
+| 29 | `{"texto":"getafe","resultados":1}` |
+| 30 | `{"texto":"ACT","resultados":6}` |
+| 31 | `{"texto":"zzz","resultados":0}` |
+
+- **Los números coinciden** con lo que devolvió cada búsqueda, y la búsqueda sin resultados quedó apuntada con 0.
+- **Las pruebas 4 y 5 no dejaron rastro:** el `RAISE EXCEPTION` deshizo la función.
+- **ACT-006, con el municipio vacío (`NULL`), salió en la búsqueda de "ACT":** una columna nula no rompe el `OR`, simplemente no encaja.
+
+### 16.5. Un hallazgo de las pruebas: el orden
+
+En la búsqueda de "ACT", **ACT-001 salió el último**. Sin `ORDER BY`, Postgres devuelve las filas en el orden que le conviene, que depende de dónde las guarda: ACT-001 es el activo más modificado, y cada `UPDATE` escribe una versión nueva de la fila más adelante. No es un fallo, pero ordenar los resultados (por ejemplo, `ORDER BY codigo`) queda como mejora. Como la `019` ya está ejecutada, irá en una migración nueva, igual que la 017 sustituyó a la 013 (sección 14.1).
+
+---
+
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
