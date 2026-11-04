@@ -1432,4 +1432,84 @@ En la búsqueda de "ACT", **ACT-001 salió el último**. Sin `ORDER BY`, Postgre
 
 ---
 
+## 17. Registro de actividad — las consultas de fondos
+
+La primera ventanilla de la segunda sección. Migración `020_funcion_consultar_fondo.sql`: la misma función que `consultar_activo` (sección 15.3), adaptada a `fondos`:
+
+```js
+await clienteSupabase.rpc("consultar_fondo", { fondo_id: 1 })
+```
+
+En los datos de un fondo viene el **IBAN**. Era el ejemplo de partida de la sección 15: saber quién ha visto el IBAN de un fondo es lo que pide un auditor. Con esta función, **cada consulta hecha por la ventanilla queda apuntada**. La lectura directa de `fondos` (sección 8) sigue abierta hasta que estén todas las funciones de lectura (sección 15.2): mientras tanto, un `from("fondos").select()` desde la consola todavía lee el IBAN sin dejar rastro.
+
+### 17.1. Lo que cambia respecto a `consultar_activo`
+
+- El nombre de la función y su parámetro: `consultar_fondo(fondo_id bigint)`.
+- La forma de la fila: `RETURNS SETOF public.fondos` y `fila public.fondos;`.
+- La sección: `tiene_seccion('FONDOS')` y `'FONDOS'` en el registro, con su mensaje propio ("No tienes permiso para consultar fondos").
+- El `REVOKE` / `GRANT` apunta a `public.consultar_fondo(bigint)`.
+
+Todo lo demás se queda igual: la comprobación, el `FOUND`, el `INSERT` de `CONSULTA` y el `RETURN NEXT`. Es la ventaja de que todas las ventanillas sigan el mismo molde: **una función nueva se adapta en minutos y se revisa sabiendo dónde mirar**.
+
+### 17.2. Fallos del primer borrador
+
+La función se adaptó a partir de la `018` sin esqueleto. Hubo tres fallos, todos de renombrado:
+
+- **El parámetro seguía llamándose `activo_id`.**
+- **`public.fondo`**, sin la *s* de la tabla.
+- **`fondo_id_id`:** al aceptar una sugerencia del autocompletado de VS Code con Enter, se duplicó la terminación de la palabra.
+
+Trucos para las próximas: al terminar, **buscar con Ctrl+F la palabra vieja** (`activo`) para comprobar que no queda ningún resto, y **mirar qué propone el autocompletado antes de pulsar Enter**.
+
+### 17.3. Cómo se probó
+
+**Los papeles se invierten respecto a activos:** el lector tiene la sección FONDOS y el editor no.
+
+| # | Usuario | Petición | Resultado |
+|---|---|---|---|
+| 1 | Lector (con FONDOS) | `fondo_id: 1` | 1 fila (BODEGA DE ALS SL, con su IBAN), `200` |
+| 2 | Lector | `fondo_id: 999` | `[]`, sin error, `200` |
+| 3 | Editor (sin FONDOS) | `fondo_id: 1` | `400`, `P0001`, "No tienes permiso para consultar fondos" |
+| 4 | Admin | `fondo_id: 1` | 1 fila, `200` |
+| 5 | Admin | lee el registro (abajo) | 4 filas: 1 de prueba antigua, 2 del lector y 1 del admin (sección 17.4) |
+| 6 | Sin sesión (tras `signOut()`) | `fondo_id: 1` | `401`, `42501`, "permission denied for function consultar_fondo" |
+
+```js
+const { data: filas } = await clienteSupabase.from("registro_actividad").select("*").eq("accion", "CONSULTA").eq("seccion", "FONDOS")
+filas.forEach(f => console.log(f.id, f.perfil_id, f.registro_id))
+```
+
+Se filtra también por sección para que no se mezclen las consultas de activos de la sección 15.
+
+### 17.4. Un hallazgo de las pruebas: leer el registro como un auditor
+
+Se esperaban 2 filas (lector y admin) y salieron 4:
+
+| id | Quién | `registro_id` | Qué es |
+|---|---|---|---|
+| 2 | Lector | `null` | La fila de prueba de la sección 11.3, insertada desde el SQL Editor (`{"nota": "fila de prueba"}`). |
+| 35 | Lector | 1 | Consulta del fondo 1 |
+| 37 | Lector | 1 | Otra consulta del fondo 1 |
+| 40 | Admin | 1 | Consulta del fondo 1 |
+
+Para saber qué pasó entre la 35 y la 37, se leyeron todas las filas desde la 32:
+
+```js
+const { data: filas } = await clienteSupabase.from("registro_actividad").select("*").gte("id", 32).order("id")
+filas.forEach(f => console.log(f.id, f.accion, f.seccion, f.perfil_id, f.registro_id))
+```
+
+**El lector inició sesión dos veces (filas 34 y 36) y consultó el fondo en cada una**: la prueba se repitió sin querer. La función no apunta una consulta por sesión, sino **una por cada llamada**. Si el lector hubiera consultado dos veces en la misma sesión, también habría dos filas. Es lo correcto: cada vez que alguien ve el IBAN, queda apuntado.
+
+- **El intento denegado del editor no dejó rastro**, como en las secciones 15 y 16. Apuntar los accesos denegados (`ACCESO_DENEGADO`) sigue como ampliación.
+- **La consulta del fondo 999 tampoco se apuntó** (sección 15.3).
+
+**Una carencia que salió a la luz: el registro guarda ids, no personas.** Aquí se supo quién era cada `perfil_id` porque se sabía en qué orden habían entrado los usuarios de prueba. Un auditor no tiene esa información. Tendría que cruzar cada `perfil_id` con `perfiles`, que el admin sí puede leer (sección 7). Queda como mejora una función o vista para el admin que devuelva el registro con el usuario y su rol ya traducidos.
+
+### 17.5. Pregunta previsible: "¿Por qué un lector ve el IBAN?"
+
+Porque el permiso es por sección, no por columna (como en la sección 9.5): quien tiene FONDOS ve el fondo entero. Ocultar columnas sensibles según el rol sería una ampliación. Lo que sí se consigue ya es que cada consulta por la ventanilla quede apuntada.
+
+---
+
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
