@@ -1744,4 +1744,60 @@ Una función genérica tendría que recibir el nombre de la tabla como texto y m
 
 ---
 
+## 19. Registro de actividad — las consultas de suministros
+
+La primera ventanilla de la tercera sección. Migración `023_funcion_consultar_suministro.sql`: la misma función que `consultar_fondo` (sección 17), adaptada a `suministros`:
+
+```js
+await clienteSupabase.rpc("consultar_suministro", { suministro_id: 1 })
+```
+
+Como en fondos, **la lectura directa de `suministros` (sección 9) sigue abierta** hasta que estén todas las funciones de lectura. Antes de las pruebas, el lector listó los 5 suministros con sus CUPS mediante `from("suministros").select("id, tipo, cups")`, y esa lectura no dejó rastro en el registro.
+
+### 19.1. Lo que cambia respecto a `consultar_fondo`
+
+- El nombre de la función y su parámetro: `consultar_suministro(suministro_id bigint)`.
+- La forma de la fila: `RETURNS SETOF public.suministros` y `fila public.suministros;`.
+- La sección: `tiene_seccion('SUMINISTROS')` y `'SUMINISTROS'` en el registro, con su mensaje propio ("No tienes permiso para consultar suministros").
+- El `WHERE`: `WHERE id = suministro_id`.
+- El `REVOKE` / `GRANT` apunta a `public.consultar_suministro(bigint)`.
+
+**El nombre del parámetro no es un detalle.** La tabla `suministros` tiene una columna `activo_id`, que es el activo al que pertenece cada suministro. Si el parámetro se hubiera llamado así, como en `consultar_activo` (sección 15.3), `WHERE id = activo_id` sería ambiguo: Postgres no sabría si es la columna o el parámetro, y daría `42702`, el mismo error que se evitó con el alias en la sección 18.5. Por eso esta función se adaptó a partir de `consultar_fondo` y no de `consultar_activo`.
+
+Es **la primera ventanilla que salió sin fallos en el primer borrador.**
+
+### 19.2. Cómo se probó
+
+**Los papeles son como en fondos:** el lector tiene la sección SUMINISTROS y el editor no.
+
+| # | Usuario | Petición | Resultado |
+|---|---|---|---|
+| 1 | Lector (con SUMINISTROS) | `suministro_id: 1` | 1 fila (LUZ, CUPS `ES0021000000000001AA`, activo 1), `200` |
+| 2 | Lector | `suministro_id: 999` | `[]`, sin error, `200` |
+| 3 | Editor (sin SUMINISTROS) | `suministro_id: 999` | `400`, `P0001`, "No tienes permiso para consultar suministros" |
+| 4 | Admin | `suministro_id: 1` | 1 fila, `200` |
+| 5 | Admin | lee el registro (abajo) | 2 filas `CONSULTA`/`SUMINISTROS` |
+| 6 | Sin sesión (tras `signOut()`) | `suministro_id: 999` | `401`, `42501`, "permission denied for function consultar_suministro" |
+
+**Las pruebas 3 y 6 se hicieron con el id 999, y valen igual.** El editor se queda en la comprobación del permiso, que va antes de buscar el suministro. Sin sesión ni siquiera se llega a ejecutar la función, porque lo frena el `REVOKE`. En ninguno de los dos casos importa qué id se pida.
+
+```js
+const { data: filas } = await clienteSupabase.from("registro_actividad").select("*").eq("accion", "CONSULTA").eq("seccion", "SUMINISTROS").order("id")
+filas.forEach(f => console.log(f.id, f.perfil_id, f.registro_id))
+```
+
+| id | Quién | `registro_id` |
+|---|---|---|
+| 63 | Lector | 1 |
+| 67 | Admin | 1 |
+
+- **Una fila por cada consulta real.** Ni el 999 ni el intento del editor dejaron rastro.
+- **El registro no inventa nada.** En la primera ronda, el admin leyó el registro sin haber consultado antes el suministro, y salió una sola fila, la del lector. Hubo que repetir la prueba 4 para que apareciera la 67. Si falta una fila, es que falta una llamada.
+
+### 19.3. Pregunta previsible: "El lector no tiene ACTIVOS, pero ve a qué activo pertenece el suministro"
+
+Es cierto: la fila trae `activo_id: 1`. Pero solo es un número, una referencia. Para ver el activo (dirección, municipio, estado…) habría que pedirlo con `consultar_activo`, y el lector no tiene permiso. Es el mismo criterio que en la sección 17.5: **el permiso es por sección, no por columna**, y quien tiene SUMINISTROS ve el suministro entero, con su referencia al activo incluida.
+
+---
+
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
