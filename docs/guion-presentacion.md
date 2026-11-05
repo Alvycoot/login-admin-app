@@ -1512,4 +1512,236 @@ Porque el permiso es por sección, no por columna (como en la sección 9.5): qui
 
 ---
 
+## 18. Registro de actividad — las búsquedas de fondos
+
+La segunda ventanilla de fondos. Se hizo en dos migraciones:
+
+- **`021_funcion_buscar_fondos.sql`:** la misma función que `buscar_activos` (sección 16.2), adaptada a `fondos`.
+- **`022_buscar_fondos_sin_iban.sql`:** corrige un punto débil de la anterior que apareció al revisarla antes del commit (sección 18.5).
+
+```js
+await clienteSupabase.rpc("buscar_fondos", { texto: "bodega" })
+```
+
+### 18.1. Dos decisiones de diseño
+
+Las tres decisiones de la sección 16.1 se mantienen: se apuntan también las búsquedas sin resultados y un texto vacío da error. Lo que cambia:
+
+1. **Se busca en `nombre` y `cif`. El IBAN se deja fuera a propósito, por dos motivos:**
+   - **Seguridad:** si se pudiera buscar por el IBAN, bastaría con ir probando trozos ("ES00", "ES001"…) y mirar cuándo aparece el fondo para reconstruirlo sin haberlo consultado nunca.
+   - **Uso real:** buscar por IBAN no es intuitivo. Quien tiene el IBAN ya sabe qué fondo busca. En una empresa, quien lo haría es un departamento concreto, como Facturación. Por eso, si algún día hace falta, irá en una función aparte (por ejemplo, `buscar_fondo_por_iban`) con dos condiciones: un permiso propio para ese departamento y coincidencia exacta del IBAN completo (`=`, no `ILIKE`), para que no se pueda reconstruir a trozos. Hoy el modelo solo tiene roles y secciones, no departamentos, así que queda como ampliación.
+2. **Los resultados salen ordenados por nombre (`ORDER BY nombre`) desde el principio.** Es la mejora que se anotó en la sección 16.5. En `buscar_activos` sigue pendiente de una migración nueva.
+
+### 18.2. La función (`021`)
+
+```sql
+CREATE FUNCTION public.buscar_fondos(texto text)
+RETURNS SETOF public.fondos
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    resultados integer;
+BEGIN
+    IF NOT privado.tiene_seccion('FONDOS') THEN
+        RAISE EXCEPTION 'No tienes permiso para buscar fondos';
+    END IF;
+
+    IF texto IS NULL OR trim(texto) = '' THEN
+        RAISE EXCEPTION 'Escribe un texto para buscar';
+    END IF;
+
+    RETURN QUERY
+        SELECT * FROM public.fondos
+    WHERE nombre ILIKE '%' || texto || '%'
+    OR cif ILIKE '%' || texto || '%'
+    ORDER BY nombre;
+
+    GET DIAGNOSTICS resultados = ROW_COUNT;
+
+    INSERT INTO public.registro_actividad (perfil_id, accion, seccion, detalle)
+    VALUES (
+        auth.uid(),
+        'BUSQUEDA',
+        'FONDOS',
+        jsonb_build_object('texto', texto, 'resultados', resultados)
+    );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.buscar_fondos(text) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.buscar_fondos(text) TO authenticated;
+```
+
+Respecto a `buscar_activos` cambian el nombre, la tabla (`public.fondos`), la sección (`'FONDOS'`, con su mensaje propio), las columnas del `WHERE` y el `ORDER BY`. El resto se queda igual.
+
+- **El `ORDER BY` va al final de la consulta, después del `WHERE` y antes del `;`.** En SQL las cláusulas tienen un orden fijo: `SELECT … FROM … WHERE … ORDER BY …`.
+- **`GET DIAGNOSTICS` sigue contando bien con el `ORDER BY`:** ordenar no cambia cuántas filas hay, solo en qué orden salen.
+
+### 18.3. Fallos del primer borrador
+
+La función se adaptó a partir de la `019` sin esqueleto. Hubo dos fallos, los dos en la consulta:
+
+- **El `ORDER BY` iba antes del `SELECT`.** Es el orden fijo de las cláusulas de la sección 18.2.
+- **Faltaba el `;` al final de la consulta.** Una parte de la culpa fue de la explicación ("el `ORDER BY` va justo antes del `;`"): se entendió que el `ORDER BY` sustituía al punto y coma.
+
+### 18.4. Cómo se probó la `021`
+
+**Igual que en la sección 17:** el lector tiene FONDOS y el editor no.
+
+| # | Usuario | `texto` | Resultado |
+|---|---|---|---|
+| 1 | Lector (con FONDOS) | `"bodega"` | 1 fila (BODEGA DE ALS SL): busca en el nombre |
+| 2 | Lector | `"b0000001"` | 1 fila: busca en el CIF y no distingue mayúsculas |
+| 3 | Lector | `"SL"` | 4 filas, en orden alfabético por nombre |
+| 4 | Lector | `"ES00"` | `[]`, `200`: el IBAN no se busca |
+| 5 | Lector | `" "` | `400`, `P0001`, "Escribe un texto para buscar" |
+| 6 | Editor (sin FONDOS) | — | `400`, `P0001`, "No tienes permiso para buscar fondos" |
+| 7 | Admin | `"bodega"` | 1 fila |
+| 8 | Admin | lee el registro (abajo) | 5 filas `BUSQUEDA` de fondos |
+| 9 | Sin sesión | — | `401`, "permission denied for function buscar_fondos" |
+
+```js
+const { data: filas } = await clienteSupabase.from("registro_actividad").select("*").eq("accion", "BUSQUEDA").eq("seccion", "FONDOS").order("id")
+filas.forEach(f => console.log(f.id, f.perfil_id, JSON.stringify(f.detalle)))
+```
+
+| id | Quién | detalle |
+|---|---|---|
+| 43 | Lector | `{"texto":"bodega","resultados":1}` |
+| 44 | Lector | `{"texto":"b0000001","resultados":1}` |
+| 45 | Lector | `{"texto":"SL","resultados":4}` |
+| 48 | Admin | `{"texto":"bodega","resultados":1}` |
+| 50 | Lector | `{"texto":"ES00","resultados":0}` |
+
+- **Los números coinciden** con lo que devolvió cada búsqueda.
+- **La búsqueda de "ES00" quedó apuntada con 0 resultados.** No encontró nada, pero el intento queda a la vista. Si alguien intentara reconstruir un IBAN a trozos, sus búsquedas quedarían apuntadas aunque fallaran.
+- **Las pruebas 5 y 6 no dejaron rastro:** el `RAISE EXCEPTION` deshizo la función, como en la sección 16.4.
+- **La fila 50 va después de la 48 porque las pruebas 4 y 5 se repitieron otro día:** la primera vez, las comillas se escribieron dos veces (`""ES00""`), así que el navegador dio un `SyntaxError` y la petición nunca llegó a enviarse.
+- **La prueba 4 era válida:** el IBAN de prueba del fondo 1 es `ES00 PRUEBA ADMIN` (comprobado con `consultar_fondo` en la sección 18.6), y "ES00" no aparece en ningún nombre ni CIF.
+
+### 18.5. Un hallazgo antes del commit: la puerta lateral del IBAN
+
+Al revisar la `021` antes de subirla apareció un agujero. **La búsqueda devolvía la fila entera de cada fondo, con su IBAN, y el registro solo guardaba el texto y el número de resultados**: `{"texto":"SL","resultados":4}` dice que alguien vio 4 fondos, pero no cuáles. Buscar "SL" enseñaba 4 IBAN, y buscar "%" (sección 16.1) los enseñaba todos, sin que ninguno quedara apuntado con su fondo.
+
+Eso contradice lo que se consiguió en la sección 17: que cada vez que alguien ve un IBAN, quede apuntado con el id del fondo. Dejar el IBAN fuera de la *búsqueda* (sección 18.1) no servía de mucho si el *resultado* lo entregaba entero.
+
+**La solución es el patrón "lista y ficha":**
+
+- **La búsqueda es la lista:** devuelve solo lo justo para reconocer cada fondo (`id`, `nombre` y `cif`).
+- **La consulta es la ficha:** para ver el fondo entero, IBAN incluido, hay que abrirlo con `consultar_fondo`, que apunta el id.
+
+Así **la única forma de ver un IBAN es la ventanilla que lo apunta**.
+
+Se descartó la alternativa de guardar en `detalle` la lista de ids devueltos. Habría dejado constancia, pero cada búsqueda seguiría enseñando IBAN y el registro crecería con cada búsqueda amplia.
+
+Migración `022_buscar_fondos_sin_iban.sql`:
+
+```sql
+DROP FUNCTION public.buscar_fondos(text);
+
+CREATE FUNCTION public.buscar_fondos(texto text)
+RETURNS TABLE (id bigint, nombre text, cif text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    resultados integer;
+BEGIN
+    IF NOT privado.tiene_seccion('FONDOS') THEN
+        RAISE EXCEPTION 'No tienes permiso para buscar fondos';
+    END IF;
+
+    IF texto IS NULL OR trim(texto) = '' THEN
+        RAISE EXCEPTION 'Escribe un texto para buscar';
+    END IF;
+
+    RETURN QUERY
+    SELECT f.id, f.nombre, f.cif
+    FROM public.fondos f
+    WHERE f.nombre ILIKE '%' || texto || '%'
+    OR f.cif ILIKE '%' || texto || '%'
+    ORDER BY f.nombre;
+
+    GET DIAGNOSTICS resultados = ROW_COUNT;
+
+    INSERT INTO public.registro_actividad (perfil_id, accion, seccion, detalle)
+    VALUES (
+        auth.uid(),
+        'BUSQUEDA',
+        'FONDOS',
+        jsonb_build_object('texto', texto, 'resultados', resultados)
+    );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.buscar_fondos(text) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.buscar_fondos(text) TO authenticated;
+```
+
+Lo nuevo respecto a la `021`:
+
+- **`DROP FUNCTION` antes del `CREATE`:** `CREATE OR REPLACE` no permite cambiar lo que devuelve una función, así que hay que borrarla y crearla de nuevo. En el `DROP` basta con el tipo del parámetro, `(text)`. El SQL Editor avisa con "Potential issue detected", y aquí es intencionado.
+- **`RETURNS TABLE (id bigint, nombre text, cif text)`:** en vez de "filas con la forma de `fondos`", la función anuncia exactamente qué columnas devuelve. Los tipos tienen que coincidir con los de la tabla (migración `001`); si no, falla al ejecutarse (`42804`).
+- **`SELECT f.id, f.nombre, f.cif`:** ya no vale `*`, que traería también el IBAN y `creado_en`. **El `SELECT` dice qué se enseña; el `WHERE`, dónde se busca.**
+- **El alias `f`:** las columnas de `RETURNS TABLE` pasan a ser también variables dentro de la función. Si se escribe `nombre` sin más, Postgres no sabe si es la columna de la tabla o la variable, y da `42702` ("column reference is ambiguous"). `FROM public.fondos f` le pone un apodo a la tabla, y `f.nombre` dice de cuál se trata.
+- **El `REVOKE` y el `GRANT` se repiten:** los permisos van pegados a la función, y el `DROP` se los lleva con ella.
+
+Fallos del primer borrador de la `022`:
+
+- **El `DROP` y el `CREATE` estaban fundidos en una sola orden:** faltaban el `;` y el `CREATE FUNCTION`.
+- **`FROM (FROM public.fondos f)`, sin `SELECT`.**
+- **Las tres columnas iban en el `WHERE` en lugar del `SELECT`**, con `f.id ILIKE …`. La función se habría creado sin queja y habría fallado en la primera búsqueda: `id` es un número, e `ILIKE` solo compara textos ("operator does not exist: bigint ~~* text"). Además, habría cambiado la regla, porque buscar por id no estaba decidido.
+
+### 18.6. Cómo se probó la `022`
+
+Antes de las pruebas, el lector abrió el fondo 1 con `consultar_fondo` para ver su IBAN: `ES00 PRUEBA ADMIN`.
+
+| # | Usuario | `texto` | Resultado |
+|---|---|---|---|
+| 1 | Lector | `"bodega"` | 1 fila: `{id: 1, nombre: 'BODEGA DE ALS SL', cif: 'B0000001'}`. **Solo tres columnas, sin `iban` ni `creado_en`** |
+| 2 | Lector | `"b0000001"` | 1 fila |
+| 3 | Lector | `"SL"` | 4 filas, en orden: BODEGA DE ALS SL, CRISTALES DIEGO SL, FONDO DEL ADMIN SL, RUBENFNANOMACHINE SL |
+| 4 | Lector | `"ES00 PRUEBA ADMIN"` | `[]`, `200`: el IBAN completo no encuentra nada |
+| 5 | Lector | `" "` | `400`, `P0001`, "Escribe un texto para buscar" |
+| 6 | Lector | `"%"` | Los 4 fondos, **sin IBAN**: el comodín sigue funcionando, pero la puerta lateral está cerrada |
+| 7 | Editor (sin FONDOS) | `"bodega"` | `400`, `P0001`, "No tienes permiso para buscar fondos" |
+| 8 | Admin | `"bodega"` | 1 fila, también con tres columnas |
+| 9 | Admin | lee el registro (abajo) | 6 filas nuevas |
+| 10 | Sin sesión (tras `signOut()`) | `"bodega"` | `401`, `42501`, "permission denied for function buscar_fondos" |
+
+```js
+const { data: filas } = await clienteSupabase.from("registro_actividad").select("*").eq("accion", "BUSQUEDA").eq("seccion", "FONDOS").gt("id", 50).order("id")
+filas.forEach(f => console.log(f.id, f.perfil_id, JSON.stringify(f.detalle)))
+```
+
+El `.gt("id", 50)` deja fuera las filas de la `021`.
+
+| id | Quién | detalle |
+|---|---|---|
+| 54 | Lector | `{"texto":"bodega","resultados":1}` |
+| 55 | Lector | `{"texto":"b0000001","resultados":1}` |
+| 56 | Lector | `{"texto":"SL","resultados":4}` |
+| 57 | Lector | `{"texto":"ES00 PRUEBA ADMIN","resultados":0}` |
+| 58 | Lector | `{"texto":"%","resultados":4}` |
+| 61 | Admin | `{"texto":"bodega","resultados":1}` |
+
+- **El registro funciona igual que con la `021`:** cambiar lo que devuelve la función no ha tocado lo que apunta.
+- **Las pruebas 5 y 7 no dejaron rastro**, como siempre que salta un `RAISE EXCEPTION`.
+- **Por qué se buscó el IBAN completo y no un trozo:** "ADMIN" está en el IBAN de prueba y también en el nombre "FONDO DEL ADMIN SL". Buscar "ADMIN" habría devuelto el fondo 6 por su nombre, y habría parecido que la búsqueda miraba el IBAN. **Un trozo de prueba tiene que estar en la columna que se quiere comprobar y en ninguna otra.**
+
+### 18.7. Lo que queda abierto
+
+- **El texto buscado se guarda tal cual.** La fila 57 lo demuestra: el IBAN escrito en el buscador ha quedado en el registro, aunque la búsqueda no encontró nada. Solo lo lee el admin, pero es un dato sensible guardado por un descuido del usuario.
+- **`%` y `_` siguen funcionando como comodines** (sección 16.1). Con la `022` la búsqueda "%" ya solo enseña nombres y CIF, pero escaparlos sigue pendiente.
+- **`buscar_activos` sigue devolviendo la fila entera.** Hay que decidir si los activos tienen algún dato que merezca el mismo trato que el IBAN.
+
+### 18.8. Pregunta previsible: "¿Por qué una función por tabla y no una búsqueda genérica?"
+
+Una función genérica tendría que recibir el nombre de la tabla como texto y montar la consulta con él (SQL dinámico), que es justo la puerta a la inyección de SQL. Además, cada tabla busca en sus propias columnas, tiene su propio permiso y decide qué enseña: la `022` no tendría sentido en una función común. Repetir el molde es a propósito (sección 17.1): cada ventanilla se lee entera sin saltar a otro sitio.
+
+---
+
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
