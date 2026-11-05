@@ -1800,4 +1800,130 @@ Es cierto: la fila trae `activo_id: 1`. Pero solo es un número, una referencia.
 
 ---
 
+## 20. Registro de actividad — las búsquedas de suministros
+
+La segunda ventanilla de suministros. Migración `024_funcion_buscar_suministros.sql`. Con ella, **las tres secciones (activos, fondos y suministros) tienen ya su ventanilla de consulta y la de búsqueda**.
+
+```js
+await clienteSupabase.rpc("buscar_suministros", { texto: "1aa" })
+```
+
+### 20.1. Tres decisiones de diseño
+
+1. **Se busca solo en `cups`.**
+   - `tipo` solo puede ser LUZ o GAS: buscar "luz" no sería una búsqueda, sino un filtro que devuelve todos los de luz. Si hace falta, irá en una función aparte.
+   - `activo_id` y la potencia son números, e `ILIKE` solo compara textos.
+2. **Devuelve solo `id`, `tipo` y `cups`, aunque en `suministros` no haya nada tan delicado como el IBAN.** Es la regla de lista y ficha de la sección 18.5, aplicada a todas las ventanillas: **la búsqueda da la lista; la consulta da la ficha completa y queda apuntada con su id**. Una sola regla es más fácil de explicar y de defender que "depende de la tabla".
+   - La consecuencia es que `buscar_activos` (sección 16) queda como excepción, porque sigue devolviendo la fila entera. Se recortará en una migración aparte, y así se cierra la duda de la sección 18.7.
+3. **Los resultados salen ordenados por CUPS (`ORDER BY s.cups`).**
+
+### 20.2. La función
+
+```sql
+CREATE FUNCTION public.buscar_suministros(texto text)
+RETURNS TABLE (id bigint, tipo text, cups text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    resultados integer;
+BEGIN
+    IF NOT privado.tiene_seccion('SUMINISTROS') THEN
+        RAISE EXCEPTION 'No tienes permiso para buscar suministros';
+    END IF;
+
+    IF texto IS NULL OR trim(texto) = '' THEN
+        RAISE EXCEPTION 'Escribe un texto para buscar';
+    END IF;
+
+    RETURN QUERY
+    SELECT s.id, s.tipo, s.cups
+    FROM public.suministros s
+    WHERE s.cups ILIKE '%' || texto || '%'
+    ORDER BY s.cups;
+
+    GET DIAGNOSTICS resultados = ROW_COUNT;
+
+    INSERT INTO public.registro_actividad (perfil_id, accion, seccion, detalle)
+    VALUES (
+        auth.uid(),
+        'BUSQUEDA',
+        'SUMINISTROS',
+        jsonb_build_object('texto', texto, 'resultados', resultados)
+    );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.buscar_suministros(text) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.buscar_suministros(text) TO authenticated;
+```
+
+Se adaptó a partir de la `022`, que ya tenía la forma de lista. Lo que cambia:
+
+- **Sin `DROP`:** la función no existía, así que se crea directamente. Con la primera línea de la `022`, Postgres habría dado error al intentar borrar algo que no existe.
+- **`RETURNS TABLE (id bigint, tipo text, cups text)`**, con los tipos de la migración `003`.
+- **El alias pasa a ser `s`**, y el `WHERE` tiene una sola condición, sin `OR`.
+- **La trampa del `42702` sigue presente, ahora con `tipo`:** está en el `RETURNS TABLE` y también es una columna de la tabla. Con `s.tipo` en todas partes no hay choque.
+
+### 20.3. Fallo del primer borrador
+
+- **`nombre` en lugar de `tipo`**, en el `RETURNS TABLE` y en el `SELECT` (`s.nombre`). Era un resto de fondos: `suministros` no tiene columna `nombre`.
+- Igual que en la sección 18.5, **la función se habría creado sin queja** y habría fallado en la primera búsqueda con `42703` ("column s.nombre does not exist").
+- **El truco de la sección 17.2 no lo detecta.** Buscar con Ctrl+F la palabra vieja (`fondo`) encuentra los restos del nombre de la tabla, pero no las columnas que solo existían allí. Se añade un paso: **comparar cada columna escrita con la migración que creó la tabla** (aquí, la `003`).
+
+### 20.4. Cómo se probó
+
+Los CUPS de prueba son 4 de luz que empiezan por `ES0021…` (terminan en AA, CC, DD y EE) y uno de gas, `ES0217…01BB`.
+
+| # | Usuario | `texto` | Resultado |
+|---|---|---|---|
+| 1 | Lector (con SUMINISTROS) | `"1aa"` | 1 fila: `{id: 1, tipo: 'LUZ', cups: 'ES0021000000000001AA'}`. **Solo tres columnas**, y no distingue mayúsculas |
+| 2 | Lector | `"ES0021"` | 4 filas, en orden: …AA, …CC, …DD, …EE. El de gas no sale |
+| 3 | Lector | `"luz"` | `[]`, `200`: el tipo no se busca |
+| 4 | Lector | `" "` | `400`, `P0001`, "Escribe un texto para buscar" |
+| 5 | Lector | `"%"` | Los 5 suministros, con tres columnas. El de gas sale el último (`ES02…` va detrás de `ES00…`) |
+| 6 | Editor (sin SUMINISTROS) | `"1aa"` | `400`, `P0001`, "No tienes permiso para buscar suministros" |
+| 7 | Admin | `"1aa"` | 1 fila, también con tres columnas |
+| 8 | Admin | lee el registro (abajo) | 5 filas `BUSQUEDA`/`SUMINISTROS` |
+| 9 | Sin sesión (tras `signOut()`) | `"1aa"` | `401`, `42501`, "permission denied for function buscar_suministros" |
+
+```js
+const { data: filas } = await clienteSupabase.from("registro_actividad").select("*").eq("accion", "BUSQUEDA").eq("seccion", "SUMINISTROS").order("id")
+filas.forEach(f => console.log(f.id, f.perfil_id, JSON.stringify(f.detalle)))
+```
+
+| id | Quién | detalle |
+|---|---|---|
+| 69 | Lector | `{"texto":"1aa","resultados":1}` |
+| 70 | Lector | `{"texto":"ES0021","resultados":4}` |
+| 71 | Lector | `{"texto":"luz","resultados":0}` |
+| 72 | Lector | `{"texto":"%","resultados":5}` |
+| 78 | Admin | `{"texto":"1aa","resultados":1}` |
+
+- **La prueba 3 sigue la lección de la sección 18.6:** "luz" no aparece en ningún CUPS, así que si hubiera salido algo, solo podía ser por el tipo.
+- **Las pruebas 4 y 6 no dejaron rastro**, como siempre que salta un `RAISE EXCEPTION`.
+- **Como en la sección 19.2, la búsqueda del admin se saltó en la primera ronda** y el registro mostró solo las 4 filas del lector. Desde entonces, los comandos del admin se preparan en un único bloque y en orden: primero la llamada, después la lectura del registro y, al final, `signOut()`.
+
+### 20.5. Preguntas previsibles
+
+**"La lista enseña el CUPS completo. ¿No es lo mismo que pasaba con el IBAN?"**
+
+No del todo. Es cierto que una búsqueda de "%" enseña los 5 CUPS y que el registro solo apunta `resultados: 5`, sin decir cuáles. Pero los dos datos cumplen papeles distintos:
+
+- **El CUPS es el identificador del suministro.** Cumple el mismo papel que el nombre y el CIF en fondos: es el dato por el que se busca y con el que se reconoce cada suministro, y aparece en todas las facturas.
+- **El IBAN es un dato financiero:** con él se pueden domiciliar cobros. Por eso solo se ve en la ficha, que queda apuntada.
+
+Un matiz: cuando el titular de un suministro es una persona física, el CUPS se suele considerar dato personal (RGPD). En este proyecto los titulares son activos de fondos, es decir, empresas. Si algún día hubiera titulares particulares, habría que revisar si el CUPS debe salir de la lista.
+
+**"¿Cómo encuentro los suministros de un activo concreto?"**
+
+Hoy no se puede: la búsqueda solo mira el CUPS, y la lista no incluye `activo_id`. Para saber de qué activo es cada suministro hay que abrir la ficha con `consultar_suministro`.
+
+Es a propósito. Buscar suministros por la dirección o el municipio del activo mezclaría dos secciones: un usuario con SUMINISTROS pero sin ACTIVOS acabaría consultando datos de activos a través de la búsqueda. La ampliación natural sería una función `suministros_de_activo(activo_id)` que exija las dos secciones y apunte la consulta.
+
+**Pendientes que se arrastran:** los comodines `%` y `_` y los textos muy cortos (sección 16.1), y que el texto buscado se guarda tal cual (sección 18.7). Aquí pesan menos, porque la búsqueda solo devuelve la lista.
+
+---
+
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
