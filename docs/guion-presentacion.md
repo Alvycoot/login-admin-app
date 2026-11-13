@@ -2173,4 +2173,173 @@ Se ha roto algo que la página todavía no usa, y se ha hecho a propósito para 
 
 ---
 
+## 23. Escritura mediante funciones — las modificaciones
+
+Con la lectura directa cerrada (sección 22), las modificaciones desde la página tocaban 0 filas sin dar error. Esta sección arregla eso con tres ventanillas de escritura: `modificar_activo` (migración `027`), y `modificar_fondo` y `modificar_suministro` (migración `028`, que además corrige la primera).
+
+```js
+await clienteSupabase.rpc("modificar_activo", { activo_id: 4, nuevo_estado: "COMPRA" })
+```
+
+### 23.1. La decisión: un parámetro por columna
+
+Había tres formas de decirle a la función qué cambiar:
+
+- **A. Un parámetro por columna, y "vacío" significa "no cambiar".** Elegida.
+- **B. Un único parámetro con los cambios en JSON.** Es flexible, pero obliga a tratar cada columna a mano o a montar la consulta como texto, que es la puerta a la inyección de SQL (sección 18.8).
+- **C. Una función por acción de negocio** (`cambiar_estado_activo`, `registrar_venta_activo`…). Es la más cercana a una empresa, pero son demasiadas funciones para la versión mínima.
+
+Con la A, la página solo manda lo que cambia, y cada dato llega con su tipo comprobado por Postgres. **Su límite: no permite vaciar un campo a propósito**, por ejemplo borrar una fecha de venta puesta por error. Queda como ampliación.
+
+**Lo que no se modifica:** en activos, `id`, `codigo` y `creado_en`. El código es el identificador que se usa fuera de la aplicación (en Teams y en los correos), y cambiarlo debería ser una operación aparte y excepcional. En suministros, tampoco `tipo` ni `activo_id`: pasar una luz a gas, o un suministro a otro activo, no es modificarlo, sino dar de baja uno y crear otro.
+
+### 23.2. El molde: `modificar_activo` (`027`)
+
+Trae tres piezas nuevas respecto a las ventanillas de lectura:
+
+1. **Parámetros opcionales con `DEFAULT NULL`.** Los que la página no manda llegan vacíos. Llevan el prefijo `nuevo_` / `nueva_` para no chocar con las columnas de la tabla (el `42702` de la sección 18.5).
+2. **`COALESCE(nuevo, actual)`:** usa el valor nuevo y, si viene vacío, deja el que había.
+3. **`UPDATE … RETURNING a.* INTO fila`** seguido de **`IF NOT FOUND THEN RAISE EXCEPTION`**: modifica, guarda cómo ha quedado la fila y, si no había ningún activo con ese id, da un error. **Es lo que arregla el fallo silencioso de la sección 22.**
+
+```sql
+    UPDATE public.activos a
+    SET direccion = COALESCE(nueva_direccion, a.direccion),
+        municipio = COALESCE(nuevo_municipio, a.municipio),
+        ...
+        fecha_venta = COALESCE(nueva_fecha_venta, a.fecha_venta)
+    WHERE a.id = activo_id
+    RETURNING a.* INTO fila;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'El activo no existe';
+    END IF;
+```
+
+El permiso se comprueba con `privado.puede_escribir('ACTIVOS')`, de la sección 10: exige el rol EDITOR y la sección, o ser admin.
+
+**Lo que la función no hace: apuntar en el registro.** El disparador de las secciones 12 y 14 salta con cualquier `UPDATE` sobre la tabla, también dentro de una función, y apunta la `MODIFICACION` con el antes y el después. Las pruebas lo confirmaron.
+
+**Fallos del primer borrador**, corregidos en dos vueltas:
+- Faltaban las comas entre los parámetros.
+- `SET` repetido en cada línea. Va una sola vez, con las columnas separadas por comas.
+- Nombres de columna con espacios a la izquierda del `=` (`referencia catastral`, `fondo id`…). El nombre de la izquierda tiene que ser el mismo que va detrás de `a.` en el `COALESCE` de esa línea.
+- En la segunda vuelta faltaban las comas al final de las líneas del `SET`. **Truco para contar:** 8 parámetros → 7 comas; 7 columnas en el `SET` → 6 comas.
+
+### 23.3. Cómo se probó la `027`
+
+| # | Usuario | Petición | Resultado |
+|---|---|---|---|
+| 1 | Editor | ACT-004 → `COMPRA` | 1 fila, el resto de columnas igual. **Lo que fallaba en silencio en la sección 22** |
+| 2 | Editor | ACT-007: municipio `Getafe` y fecha de compra, a la vez | 1 fila con los dos cambios |
+| 3 | Editor | Activo 999 | `P0001`, "El activo no existe" |
+| 4 | Editor | ACT-004 → `DEMOLIDO` | `23514`, la restricción `CHECK` del estado (ver 23.4) |
+| 5 | Editor | ACT-004 sin cambios | 1 fila igual |
+| 6 | Lector | ACT-004 → `EN VENTA` | `P0001`, "No tienes permiso para modificar activos" |
+| 7 | Admin | ACT-004 → `EN VENTA` | 1 fila |
+| 8 | Admin | Lee el registro desde la fila 96 | Ver abajo |
+| 9 | Sin sesión | ACT-004 → `EN VENTA` | `401`, `42501` |
+
+| id | Quién | Acción | Detalle |
+|---|---|---|---|
+| 96 | Editor | `LOGIN` | — |
+| 97 | Editor | `MODIFICACION` / `ACTIVOS` / 4 | `{"estado":{"antes":"EN OBRA","despues":"COMPRA"}}` |
+| 98 | Editor | `MODIFICACION` / `ACTIVOS` / 7 | `{"municipio":{"antes":"Madrid","despues":"Getafe"},"fecha_compra":{"antes":null,"despues":"2026-11-13"}}` |
+| 99 | Lector | `LOGIN` | — |
+| 100 | Admin | `LOGIN` | — |
+| 101 | Admin | `MODIFICACION` / `ACTIVOS` / 4 | `{"estado":{"antes":"COMPRA","despues":"EN VENTA"}}` |
+
+- **Las filas 97 y 98 llevan el `perfil_id` del editor.** La función se ejecuta con los permisos del dueño de las tablas (`SECURITY DEFINER`), pero `auth.uid()` sigue devolviendo el usuario que la llamó. **El registro apunta a la persona real, no al dueño.**
+- **Las pruebas 3 a 6 no dejaron rastro:** el 999 no existe, la 4 se deshace por el error, la 5 no cambia nada (la `017` no apunta modificaciones vacías) y el lector no tiene permiso.
+
+### 23.4. Un hallazgo: el error del `CHECK` enseñaba la fila
+
+El error de la prueba 4 traía esto en `details`:
+
+> Failing row contains (4, ACT-004, Calle del Editor 1, Madrid, null, 1, DEMOLIDO, …)
+
+**Postgres enseña la fila entera** cuando una restricción `CHECK` la rechaza. Y como el error deshace todo, no queda nada en el registro. Alguien con permiso de escritura podía ver la ficha completa de cualquier activo mandando a propósito un estado inválido, **sin que quedara ninguna `CONSULTA`**. Solo afecta a quien ya puede escribir en esa sección, pero es una lectura que se salta el registro: el mismo tipo de puerta lateral que la del IBAN (sección 18.5).
+
+**El arreglo: validar antes del `UPDATE`**, con un mensaje propio:
+
+```sql
+    IF nuevo_estado IS NOT NULL
+       AND nuevo_estado NOT IN ('COMPRA', 'EN OBRA', 'EN VENTA', 'VENDIDO') THEN
+        RAISE EXCEPTION 'Estado no válido';
+    END IF;
+```
+
+La restricción `CHECK` de la tabla se queda como última defensa. Además, el usuario recibe un mensaje en castellano que entiende, en lugar de uno técnico en inglés.
+
+### 23.5. La `028`: el arreglo y las otras dos ventanillas
+
+Una sola migración con tres bloques comentados:
+
+1. **`CREATE OR REPLACE` de `modificar_activo`**, con la validación del estado. **No lleva `REVOKE` ni `GRANT`:** `CREATE OR REPLACE` conserva los permisos, porque la firma (nombres y tipos de los parámetros) es idéntica. Si cambiara, habría que hacer `DROP` y `CREATE`, como en la `025` (sección 21.5).
+2. **`modificar_fondo(fondo_id, nuevo_nombre, nuevo_cif, nuevo_iban)`**, el molde aplicado a `fondos`. Esta tabla no tiene restricciones `CHECK`, así que no hace falta validar nada antes.
+3. **`modificar_suministro(suministro_id, nuevo_cups, nueva_potencia_contratada_kw, nuevo_tipo_instalacion_gas)`.** Las restricciones de la `003` dicen que la potencia solo vale para luz y el tipo de instalación solo para gas. Para validarlo antes del `UPDATE`, la función **lee primero el tipo** del suministro:
+
+```sql
+    SELECT s.tipo INTO tipo_actual
+    FROM public.suministros s
+    WHERE s.id = suministro_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'El suministro no existe';
+    END IF;
+
+    IF tipo_actual = 'GAS' AND nueva_potencia_contratada_kw IS NOT NULL THEN
+        RAISE EXCEPTION 'La potencia contratada solo se aplica a suministros de luz';
+    END IF;
+```
+
+**El orden importa: primero el permiso y después si existe.** Al revés, alguien sin permiso podría averiguar qué ids existen según el mensaje de error que recibiera.
+
+**Juntar las tres en una migración** ahorra ciclos de pruebas y no puede dejar nada a medias: el SQL Editor la ejecuta entera de una vez, como una transacción (sección 21.5).
+
+### 23.6. Cómo se probó la `028`
+
+**Una lección de la primera ronda:** las pruebas se lanzaron sin haber ejecutado la migración en Supabase. Todas las llamadas a las funciones nuevas dieron `PGRST202` ("Could not find the function"), y `modificar_activo` seguía dando el `23514` antiguo. **Si sale `PGRST202`, lo primero es comprobar que la migración está ejecutada: el archivo de VS Code no es la base de datos.** El registro solo recogió los tres `LOGIN` (102 a 104): las pruebas no causaron ningún daño.
+
+Ya ejecutada, **en fondos y suministros solo puede escribir el admin**: el editor no tiene esas secciones, y el lector las tiene, pero con rol LECTOR.
+
+| # | Usuario | Petición | Resultado |
+|---|---|---|---|
+| 1 | Editor | ACT-004 → `DEMOLIDO` | `P0001`, "Estado no válido", **`details: null`** |
+| 2 | Editor | `modificar_fondo` | `P0001`, "No tienes permiso para modificar fondos" |
+| 3 | Lector (con FONDOS) | `modificar_fondo` | `P0001`, "No tienes permiso para modificar fondos" |
+| 4 | Admin | Fondo 2, IBAN nuevo | 1 fila |
+| 5 | Admin | Fondo 999 | `P0001`, "El fondo no existe" |
+| 6 | Admin | Suministro 1 (luz), potencia 8 | 1 fila |
+| 7 | Admin | Suministro 2 (gas), potencia 5 | `P0001`, "La potencia contratada solo se aplica a suministros de luz" |
+| 8 | Admin | Suministro 1 (luz), instalación `COMUNITARIA` | `P0001`, "El tipo de instalación solo se aplica a suministros de gas" |
+| 9 | Admin | Suministro 999 | `P0001`, "El suministro no existe" |
+| 10 | Admin | Lee el registro | Ver abajo |
+| 11 | Sin sesión | `modificar_fondo` | `401`, `42501` |
+
+| id | Quién | Acción | Detalle |
+|---|---|---|---|
+| 105-107 | Editor, lector y admin | `LOGIN` | — |
+| 108 | Admin | `MODIFICACION` / `FONDOS` / 2 | `{"iban":{"antes":"ES00 PRUEBA EDITOR SQL","despues":"ES00 PRUEBA 028"}}` |
+| 109 | Admin | `MODIFICACION` / `SUMINISTROS` / 1 | `{"potencia_contratada_kw":{"antes":7.5,"despues":8}}` |
+
+**Todos los errores salen en castellano, con un mensaje claro y sin `details`.** Es lo que necesita la página para enseñárselos al usuario tal cual.
+
+### 23.7. Preguntas previsibles
+
+**"El registro guarda el IBAN en claro."**
+
+Es cierto: la fila 108 tiene el IBAN anterior y el nuevo. Solo lo lee el admin (sección 11), pero es un dato financiero guardado en un sitio más. La ampliación natural es que el disparador lo enmascare (por ejemplo, `ES00 **** 028`).
+
+**"¿Cómo borro una fecha de venta puesta por error?"**
+
+Hoy no se puede: es el límite de la opción A (sección 23.1). Se resolvería con un parámetro aparte que indique qué columnas vaciar, o con una función específica.
+
+**"Los errores de duplicado dicen si un valor existe."**
+
+Si alguien pone un CUPS, un CIF o una referencia catastral que ya tiene otro registro, Postgres responde que ya existe (`23505`). Lo mismo pasa con un `nuevo_fondo_id` que no existe (`23503`). Solo afecta a quien puede escribir en esa sección, y la respuesta solo confirma un valor que esa persona ya ha escrito.
+
+**Validaciones de negocio pendientes:** que la potencia sea positiva, que la fecha de venta no sea anterior a la de compra, o qué cambios de estado tienen sentido (no volver de `VENDIDO` a `COMPRA`). Es lo que resolvería la opción C de la sección 23.1, y queda como ampliación.
+
+---
+
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
