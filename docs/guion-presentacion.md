@@ -2052,4 +2052,125 @@ Es cierto, pero solo la lista (código, dirección y municipio), no la ficha. Y 
 
 ---
 
+## 22. Registro de actividad — se cierra la lectura directa
+
+Hasta aquí había **dos caminos para leer** activos, fondos y suministros: las ventanillas (secciones 15 a 21), que apuntan cada lectura, y la lectura directa con `from(...).select()`, abierta por las políticas de las secciones 8 y 9, que no deja rastro. Con la migración `026_cerrar_lectura_directa.sql` se cierra la lectura directa y **solo queda la ventanilla**. Es el paso que hace defendible la decisión de la sección 15.2.
+
+Se hizo en cuatro fases: una foto del antes, la migración, las pruebas con hipótesis apuntadas de antemano y la interpretación.
+
+### 22.1. La foto del antes
+
+Antes de cambiar nada, el editor:
+
+- Leyó `activos` directamente con `from("activos").select("*")`: **las 6 filas completas**, con `referencia_catastral`, `fondo_id`, `estado` y las fechas, justo lo que la `025` quitó de la búsqueda.
+- Modificó ACT-004 de `COMPRA` a `EN OBRA`: 1 fila.
+
+El registro, leído por el admin desde la fila 86:
+
+| id | Quién | Acción | Detalle |
+|---|---|---|---|
+| 86 | Editor | `LOGIN` | — |
+| 87 | Editor | `MODIFICACION` / `ACTIVOS` / 4 | `{"estado":{"antes":"COMPRA","despues":"EN OBRA"}}` |
+| 88 | Admin | `LOGIN` | — |
+
+**La lectura no dejó ninguna fila.** El editor vio los seis activos enteros y el registro no se enteró. Es la demostración de que la puerta estaba abierta.
+
+### 22.2. La migración
+
+```sql
+DROP POLICY "Lectura de fondos por sección" ON public.fondos;
+DROP POLICY "Lectura de activos por sección" ON public.activos;
+DROP POLICY "Lectura de suministros por sección" ON public.suministros;
+```
+
+- **El nombre tiene que coincidir carácter por carácter**, tilde incluida. Se comprobó byte a byte contra la `009` y la `010`: una tilde puede verse igual en pantalla y estar guardada de otra forma, y entonces Postgres diría que la política no existe.
+- **El nombre va entre comillas dobles**, porque es un nombre de objeto, no un texto.
+
+**Lo que no se tocó:**
+- **`privado.tiene_seccion`**, aunque nació en la misma `009`: la usan todas las ventanillas. Se borra la política, no la función.
+- **Las políticas de `perfiles`** (secciones 6 y 7): el saludo del login las necesita.
+- **La lectura del registro por el admin** (sección 11).
+- **Las políticas de escritura** (sección 10), para ver qué les pasaba.
+
+Tras ejecutarla, se comprobó qué políticas quedaban:
+
+```sql
+SELECT tablename, policyname, cmd
+FROM pg_policies
+WHERE schemaname = 'public'
+ORDER BY tablename, cmd;
+```
+
+Quedaron 9: `activos`, `fondos` y `suministros`, solo con su `INSERT` y su `UPDATE`; `perfiles`, con sus dos de `SELECT`; `registro_actividad`, con la suya. **Ningún `SELECT` en las tres tablas de datos.**
+
+### 22.3. Las hipótesis
+
+Se apuntaron antes de probar:
+
+| Qué se prueba | Qué se espera | Por qué |
+|---|---|---|
+| Lectura directa | `[]`, **sin error** | Sin política que lo permita, RLS no da error: devuelve cero filas |
+| Las ventanillas | Siguen funcionando | Son `SECURITY DEFINER`: se ejecutan con los permisos del dueño de las tablas, que no pasa por RLS |
+| Crear (`insert` sin `.select()`) | Funciona | Crear no necesita leer |
+| Modificar (`update().eq(...)`) | **0 filas, sin error** | Para encontrar la fila del `.eq`, el `UPDATE` necesita poder leerla (sección 15.2) |
+
+**El diseño de la última prueba tiene truco.** Si el `update` se hace con `.select()` y sale `[]`, no se sabe si es porque no modificó nada o porque no puede devolver lo modificado (devolver también es leer). Por eso se hizo **sin `.select()`**, y después se comprobó el resultado con la ventanilla.
+
+### 22.4. Cómo se probó
+
+| # | Usuario | Prueba | Resultado |
+|---|---|---|---|
+| 1 | Editor | `from("activos").select("*")` | `[]`, `error: null` |
+| 2 | Editor | `consultar_activo(1)` | 1 fila (ACT-001) |
+| 3 | Editor | `buscar_activos("ACT")` | 6 filas |
+| 4 | Editor | Crear ACT-007 con `insert` | `error: null`, creado con id 7 |
+| 5 | Editor | ACT-004 de vuelta a `COMPRA` con `update`, sin `.select()` | `error: null` |
+| 6 | Editor | `consultar_activo(4)` | **Estado `EN OBRA`: el paso 5 no cambió nada** |
+| 7 | Lector | `fondos` y `suministros` directos | `[]` y `[]`, sin error |
+| 8 | Admin | `from("activos").select("*")` | `[]`: tampoco el admin entra por la puerta |
+
+El registro, leído por el admin desde la fila 89:
+
+| id | Quién | Acción | Detalle |
+|---|---|---|---|
+| 89 | Editor | `LOGIN` | — |
+| 90 | Editor | `CONSULTA` / `ACTIVOS` / 1 | — |
+| 91 | Editor | `BUSQUEDA` / `ACTIVOS` | `{"texto":"ACT","resultados":6}` |
+| 92 | Editor | `CREACION` / `ACTIVOS` / 7 | — |
+| 93 | Editor | `CONSULTA` / `ACTIVOS` / 4 | — |
+| 94 | Lector | `LOGIN` | — |
+| 95 | Admin | `LOGIN` | — |
+
+**Se cumplieron las cuatro hipótesis.** La prueba definitiva de la última: **no hay ninguna `MODIFICACION`**. Las lecturas directas de las pruebas 1, 7 y 8 tampoco dejaron rastro, pero ahora porque no devolvieron nada.
+
+### 22.5. Qué significa
+
+1. **La puerta está cerrada para todos, también para el admin.** Nadie lee activos, fondos ni suministros sin pasar por una ventanilla que lo apunta. El registro de lecturas ya no se puede saltar.
+2. **Lo que se rompe son las modificaciones, y en silencio.** El paso 5 devolvió `error: null`. Si la página hiciera esa modificación, le diría al usuario "guardado" sin haber cambiado nada. Solo se descubrió al comprobar el efecto con la ventanilla (paso 6). **Un "sin error" no significa "hecho": hay que comprobar el efecto.** La página todavía no modifica datos, así que no hay nada roto a la vista.
+3. **Sin probar, pero previsible:** un `insert` con `.select()` también fallaría, por la misma razón. La creación funciona solo porque no pide nada de vuelta.
+
+**Lo siguiente: las funciones de escritura.** La propuesta es crear `crear_…` y `modificar_…` para las tres tablas y, después, retirar también las políticas de `INSERT` y `UPDATE`. Las tablas quedarían sin ninguna puerta, y la única forma de hablar con ellas serían las ventanillas, que comprueban el permiso y lo apuntan.
+
+**Marcha atrás:** el paso es reversible. Bastaría con volver a ejecutar los `CREATE POLICY` de la `009` y la `010`. Ningún dato se borra: solo cambia por dónde se puede leer.
+
+### 22.6. Preguntas previsibles
+
+**"¿Por qué el admin tampoco puede leer directamente?"**
+
+Porque también se le audita. Un admin que se saltara el registro sería el punto ciego perfecto. Ahora sus lecturas quedan apuntadas igual que las de cualquiera.
+
+**"¿Quién audita al auditor?"**
+
+Nadie, todavía. El admin lee el registro directamente (sección 11), y esas lecturas no se apuntan. Queda como ampliación.
+
+**"¿Y desde el SQL Editor?"**
+
+El SQL Editor se salta las políticas y no apunta nada (sección 12): es la llave maestra del dueño del proyecto, para mantenimiento. En una empresa, ese acceso estaría restringido a muy pocas personas y vigilado con otras herramientas.
+
+**"Si las modificaciones fallan en silencio, ¿no habéis roto la aplicación?"**
+
+Se ha roto algo que la página todavía no usa, y se ha hecho a propósito para encontrarlo con pruebas antes de que llegue al usuario. Es el siguiente paso, y está identificado: las funciones de escritura.
+
+---
+
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
