@@ -1926,4 +1926,130 @@ Es a propósito. Buscar suministros por la dirección o el municipio del activo 
 
 ---
 
+## 21. Registro de actividad — `buscar_activos` pasa a devolver solo la lista
+
+Migración `025_buscar_activos_solo_lista.sql`. La `019` (sección 16) devolvía la fila entera de cada activo: referencia catastral, fondo, estado y fechas. Era la única búsqueda que no seguía la regla de lista y ficha (sección 20.1). Con esta migración, **las tres búsquedas funcionan igual**: dan la lista, y la ficha completa solo se ve con la consulta, que queda apuntada con su id.
+
+### 21.1. Qué columnas devuelve y por qué
+
+`id`, `codigo`, `direccion` y `municipio`. Hubo dudas con el municipio, y se mantiene por tres motivos:
+
+- **Se busca por él, y lo que se busca, se ve.** Si alguien busca "Getafe" y no ve el municipio en la lista, no sabría por qué ha salido cada activo.
+- **Las direcciones se repiten entre municipios.** La columna `direccion` no lleva el municipio (migración `002`).
+- **No es un dato delicado.**
+
+Quitarlo solo sería coherente si también se dejara de buscar por municipio, y se descartó porque "¿qué tenemos en Getafe?" es una pregunta habitual.
+
+### 21.2. La función
+
+```sql
+DROP FUNCTION public.buscar_activos(text);
+
+CREATE FUNCTION public.buscar_activos(texto text)
+RETURNS TABLE (id bigint, codigo text, direccion text, municipio text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    resultados integer;
+BEGIN
+    IF NOT privado.tiene_seccion('ACTIVOS') THEN
+        RAISE EXCEPTION 'No tienes permiso para buscar activos';
+    END IF;
+
+    IF texto IS NULL OR trim(texto) = '' THEN
+        RAISE EXCEPTION 'Escribe un texto para buscar';
+    END IF;
+
+    RETURN QUERY
+    SELECT a.id, a.codigo, a.direccion, a.municipio
+    FROM public.activos a
+    WHERE a.codigo ILIKE '%' || texto || '%'
+    OR a.direccion ILIKE '%' || texto || '%'
+    OR a.municipio ILIKE '%' || texto || '%'
+    ORDER BY a.codigo;
+
+    GET DIAGNOSTICS resultados = ROW_COUNT;
+
+    INSERT INTO public.registro_actividad (perfil_id, accion, seccion, detalle)
+    VALUES (
+        auth.uid(),
+        'BUSQUEDA',
+        'ACTIVOS',
+        jsonb_build_object('texto', texto, 'resultados', resultados)
+    );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.buscar_activos(text) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.buscar_activos(text) TO authenticated;
+```
+
+Es la estructura de la `022` con los datos de la `019`:
+
+- **`DROP` y luego `CREATE`**, como en la `022`, porque la función ya existía y cambia lo que devuelve (sección 21.5).
+- **Alias `a`** en todas las columnas del `SELECT`, del `WHERE` y del `ORDER BY`. Los cuatro nombres del `RETURNS TABLE` coinciden con columnas de la tabla, así que sin el alias saldría el `42702` (sección 18.5).
+- **`ORDER BY a.codigo`.** Con esto se cierra la mejora de la sección 16.5: en las pruebas de la `019`, ACT-001 salía la última.
+
+### 21.3. Fallos del primer borrador
+
+- **Un punto en lugar de una coma** en el `RETURNS TABLE`: `direccion text. municipio text`. Postgres lo habría rechazado al ejecutar con un error de sintaxis.
+- **`'FONDOS'` en la sección del registro.** Era un resto de la `022`, y es el más peligroso de los dos: **no da error**. La función habría funcionado, pero cada búsqueda de activos habría quedado apuntada como de fondos, y el registro habría mentido. El Ctrl+F con la palabra vieja (sección 17.2) lo encuentra. Por eso es un paso que no se puede saltar.
+
+Los dos se corrigieron antes de ejecutar. Las columnas se comprobaron contra la `002`, como pide la sección 20.3.
+
+### 21.4. Cómo se probó
+
+Ejecutada en el SQL Editor: *"Success. No rows returned"*. **Los papeles son los de activos:** el editor tiene la sección ACTIVOS y el lector no. Los datos de prueba son ACT-001 a ACT-006; ACT-001 está en Getafe y ACT-006 no tiene municipio.
+
+| # | Usuario | `texto` | Resultado |
+|---|---|---|---|
+| 1 | Editor (con ACTIVOS) | `"getafe"` | 1 fila: `{id: 1, codigo: 'ACT-001', direccion: 'Ronda de Ucrania y Eslava 88', municipio: 'Getafe'}`. **Solo cuatro columnas** |
+| 2 | Editor | `"ACT"` | 6 filas, **en orden de ACT-001 a ACT-006** |
+| 3 | Editor | `"%"` | Las mismas 6 filas, con cuatro columnas |
+| 4 | Editor | `" "` | `400`, `P0001`, "Escribe un texto para buscar" |
+| 5 | Lector (sin ACTIVOS) | `"ACT"` | `400`, `P0001`, "No tienes permiso para buscar activos" |
+| 6 | Admin | `"ACT"` | 6 filas |
+| 7 | Admin | lee el registro (abajo) | 4 filas nuevas `BUSQUEDA`/`ACTIVOS` |
+| 8 | Sin sesión (tras `signOut()`) | `"ACT"` | `401`, `42501`, "permission denied for function buscar_activos" |
+
+```js
+const { data: filas } = await clienteSupabase.from("registro_actividad").select("*").eq("accion", "BUSQUEDA").eq("seccion", "ACTIVOS").order("id")
+filas.forEach(f => console.log(f.id, f.perfil_id, JSON.stringify(f.detalle)))
+```
+
+| id | Quién | detalle |
+|---|---|---|
+| 29 | Editor | `{"texto":"getafe","resultados":1}` (pruebas de la `019`) |
+| 30 | Editor | `{"texto":"ACT","resultados":6}` (pruebas de la `019`) |
+| 31 | Editor | `{"texto":"zzz","resultados":0}` (pruebas de la `019`) |
+| 80 | Editor | `{"texto":"getafe","resultados":1}` |
+| 81 | Editor | `{"texto":"ACT","resultados":6}` |
+| 82 | Editor | `{"texto":"%","resultados":6}` |
+| 85 | Admin | `{"texto":"ACT","resultados":6}` |
+
+- **Las filas 29 a 31 son de las pruebas de la `019`** (sección 16). El registro no se borra al cambiar la función: guarda la historia completa.
+- **Las pruebas 4 y 5 no dejaron rastro**, como siempre que salta un `RAISE EXCEPTION`.
+- **ACT-006 sale en "ACT" y en "%" aunque su municipio sea nulo.** Una columna nula no rompe el `OR`, simplemente no encaja (sección 16.4).
+- **La página no usa todavía `buscar_activos`**, así que cambiar lo que devuelve no rompe nada.
+
+### 21.5. Preguntas previsibles
+
+**"¿Por qué `DROP` y `CREATE`, y no `CREATE OR REPLACE`?"**
+
+Porque `CREATE OR REPLACE` no permite cambiar lo que devuelve una función: pasar de la fila entera (`SETOF public.activos`) a cuatro columnas da el error `42P13` ("cannot change return type of existing function"). Hay que borrarla y crearla de nuevo. Al borrarla se pierden sus permisos, y por eso se repiten el `REVOKE` y el `GRANT` al final.
+
+**"¿Y si alguien la llama justo entre el `DROP` y el `CREATE`?"**
+
+El SQL Editor envía el archivo entero en una sola petición, y Postgres ejecuta así un bloque de varias sentencias como una única transacción: se aplica entero o no se aplica. Nadie puede encontrarse la función a medias. En un proyecto real se escribirían `BEGIN;` y `COMMIT;` explícitos para que quede claro sin depender de cómo se ejecuta el archivo.
+
+**"Con `%` se saca la lista de todos los activos."**
+
+Es cierto, pero solo la lista (código, dirección y municipio), no la ficha. Y queda apuntado: la fila 82 dice `{"texto":"%","resultados":6}`. Un auditor vería que alguien listó todos los activos, y para abrir cualquier ficha habría que pasar por `consultar_activo`, que apunta qué activo se miró.
+
+**El punto débil que queda: la puerta del almacén sigue abierta.** Las políticas de lectura de las secciones 8 y 9 siguen activas. Cualquiera con la sección ACTIVOS puede saltarse la ventanilla con `from("activos").select("*")` y leerlo todo sin dejar rastro. Ahora que las tres secciones tienen su consulta y su búsqueda, **el siguiente paso es cerrar la lectura directa** y comprobar qué se rompe (sección 15.2). Es la pieza que hace que el registro de lecturas no se pueda saltar.
+
+---
+
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
