@@ -2342,4 +2342,145 @@ Si alguien pone un CUPS, un CIF o una referencia catastral que ya tiene otro reg
 
 ---
 
+## 24. Escritura mediante funciones — las creaciones, y las tablas se cierran del todo
+
+Dos migraciones cierran el bloque de base de datos: la `029`, con las tres ventanillas de creación (`crear_activo`, `crear_fondo` y `crear_suministro`), y la `030`, que retira las políticas de escritura de la sección 10. Desde aquí, **`activos`, `fondos` y `suministros` no tienen ninguna política: no se puede leer, crear ni modificar nada sin pasar por una ventanilla.**
+
+```js
+await clienteSupabase.rpc("crear_activo", { nuevo_codigo: "ACT-008", nueva_direccion: "Calle de la Ventanilla 8", nuevo_fondo_id: 1, nuevo_estado: "COMPRA" })
+```
+
+### 24.1. Lo que cambia respecto a modificar
+
+1. **Parámetros obligatorios y opcionales.** Las columnas `NOT NULL` de la tabla van como parámetros **sin** `DEFAULT` y **delante**. Postgres exige que, a partir del primer parámetro con `DEFAULT`, todos los que vengan detrás también lo tengan.
+2. **`INSERT … RETURNING * INTO fila`.** La función devuelve la fila nueva, y así la página recibe el `id` que le ha asignado la base de datos.
+3. **El texto vacío.** `NOT NULL` impide que falte un dato, pero no impide `""`. Cada función valida sus textos obligatorios con `trim(coalesce(x, '')) = ''`: `coalesce` convierte el `NULL` en texto vacío y `trim` quita los espacios, así que una sola comprobación detecta el dato que falta, el vacío y el que solo tiene espacios.
+4. **Las mismas validaciones previas que en la `028`:** el estado en activos, y el tipo, la potencia y la instalación en suministros. Los errores salen en castellano y no dependen de los `CHECK` de la tabla (sección 23.4).
+5. **La `CREACION` la apunta el disparador**, como la `MODIFICACION`.
+
+```sql
+CREATE FUNCTION public.crear_activo(
+    nuevo_codigo text,
+    nueva_direccion text,
+    nuevo_fondo_id bigint,
+    nuevo_estado text,
+    nuevo_municipio text DEFAULT NULL,
+    nueva_referencia_catastral text DEFAULT NULL,
+    nueva_fecha_compra date DEFAULT NULL,
+    nueva_fecha_venta date DEFAULT NULL
+)
+...
+    IF trim(coalesce(nuevo_codigo, '')) = '' OR trim(coalesce(nueva_direccion, '')) = '' THEN
+        RAISE EXCEPTION 'El código y la dirección son obligatorios';
+    END IF;
+...
+    INSERT INTO public.activos
+        (codigo, direccion, fondo_id, estado, municipio, referencia_catastral, fecha_compra, fecha_venta)
+    VALUES
+        (nuevo_codigo, nueva_direccion, nuevo_fondo_id, nuevo_estado, nuevo_municipio, nueva_referencia_catastral, nueva_fecha_compra, nueva_fecha_venta)
+    RETURNING * INTO fila;
+```
+
+`crear_fondo(nuevo_nombre, nuevo_cif, nuevo_iban)` exige el nombre y el CIF. `crear_suministro(nuevo_activo_id, nuevo_tipo, nuevo_cups, …)` exige el CUPS y comprueba que el tipo sea LUZ o GAS antes de validar la potencia y la instalación.
+
+### 24.2. Cómo se probó la `029`
+
+Esta vez la migración se ejecutó antes de probar (la lección de la sección 23.6).
+
+| # | Usuario | Petición | Resultado |
+|---|---|---|---|
+| 1 | Editor | Crear ACT-008 | 1 fila, id 8 |
+| 2 | Editor | Estado `DEMOLIDO` | `P0001`, "Estado no válido" |
+| 3 | Editor | Código `"   "` | `P0001`, "El código y la dirección son obligatorios" |
+| 4 | Editor | Código `ACT-001`, repetido | `409`, `23505`, "Key (codigo)=(ACT-001) already exists" |
+| 5 | Editor | `crear_fondo` | `P0001`, "No tienes permiso para crear fondos" |
+| 6 | Lector (con FONDOS) | `crear_fondo` | `P0001`, "No tienes permiso para crear fondos" |
+| 7 | Admin | Crear "FONDO 029 SL" | 1 fila, id 8 |
+| 8 | Admin | Luz para ACT-008, 5,75 kW | 1 fila, suministro 6 |
+| 9 | Admin | Gas con potencia | `P0001`, "La potencia contratada solo se aplica a suministros de luz" |
+| 10 | Admin | Tipo `AGUA` | `P0001`, "Tipo no válido: tiene que ser LUZ o GAS" |
+| 11 | Sin sesión | `crear_fondo` | `401`, `42501` |
+
+| id | Quién | Acción |
+|---|---|---|
+| 110 | Editor | `LOGIN` |
+| 111 | Editor | `CREACION` / `ACTIVOS` / 8 |
+| 112 | Lector | `LOGIN` |
+| 113 | Admin | `LOGIN` |
+| 114 | Admin | `CREACION` / `FONDOS` / 8 |
+| 115 | Admin | `CREACION` / `SUMINISTROS` / 6 |
+
+- **Las `CREACION` no guardan los valores en `detalle`**, solo el `registro_id`. Para saber cómo se creó un registro hay que consultarlo. Ampliación posible: guardar la fila inicial como "después", igual que en las modificaciones.
+- **El fondo nuevo es el 8, aunque solo hubiera cuatro fondos.** Los ids no se reutilizan (sección 24.4).
+
+### 24.3. La `030`: las tablas se quedan sin puertas
+
+```sql
+DROP POLICY "Creación de fondos por sección" ON public.fondos;
+DROP POLICY "Modificación de fondos por sección" ON public.fondos;
+DROP POLICY "Creación de activos por sección" ON public.activos;
+DROP POLICY "Modificación de activos por sección" ON public.activos;
+DROP POLICY "Creación de suministros por sección" ON public.suministros;
+DROP POLICY "Modificación de suministros por sección" ON public.suministros;
+```
+
+**No se toca `privado.puede_escribir`**, aunque nació en la misma `011`: la usan las seis ventanillas de escritura.
+
+**Fallos del primer borrador.** Se escribió a partir de la `026` y quedaron restos: tres líneas con los nombres de "Lectura de … por sección" (ya borradas en la sección 22, así que Postgres habría dado "policy does not exist" y no se habría aplicado nada), y dos líneas que repetían "Modificación de fondos" en las tablas `activos` y `suministros`. Se corrigió en varias vueltas, comparando cada nombre con la `011`. **La comprobación rápida:** cada tabla tiene que aparecer dos veces, una con "Creación" y otra con "Modificación", y la palabra del nombre tiene que coincidir con la tabla del `ON`.
+
+Tras ejecutarla, `pg_policies` mostró **solo 3 políticas**: las dos de `perfiles` y la de `registro_actividad`.
+
+### 24.4. Cómo se probó la `030`
+
+| # | Usuario | Prueba | Resultado |
+|---|---|---|---|
+| 1 | Editor | `from("activos").insert(...)` (ACT-011) | **`403`, `42501`**, "new row violates row-level security policy for table activos" |
+| 2 | Editor | `from("activos").update(...)` de ACT-008 | `error: null` |
+| 3 | Editor | `consultar_activo(8)` | Estado `COMPRA`: **el paso 2 no cambió nada** |
+| 4 | Editor | `crear_activo` (ACT-010) | 1 fila |
+| 5 | Editor | `modificar_activo(8)` → `EN OBRA` | 1 fila |
+
+| id | Quién | Acción | Detalle |
+|---|---|---|---|
+| 116 | Editor | `LOGIN` | — |
+| 117 | Editor | `CONSULTA` / `ACTIVOS` / 8 | — |
+| 118 | Editor | `CREACION` / `ACTIVOS` / 11 | — |
+| 119 | Editor | `MODIFICACION` / `ACTIVOS` / 8 | `{"estado":{"antes":"COMPRA","despues":"EN OBRA"}}` |
+| 120 | Admin | `LOGIN` | — |
+
+- **Crear directamente falla en voz alta; modificar, en silencio.** Para un `INSERT`, RLS comprueba la fila nueva y, si ninguna política la deja entrar, da error. Para un `UPDATE`, RLS primero filtra qué filas se pueden ver; sin política, no ve ninguna, y modificar cero filas no es un error (sección 22.5).
+- **ACT-010 tiene el id 11.** El ACT-001 repetido de la `029` consumió el 9, y el `insert` de la prueba 1, aunque RLS lo rechazara, consumió el 10: Postgres reserva el número antes de comprobar si la fila puede entrar. Se había previsto el 10, y la prueba lo corrigió. **El id no coincide con el número del código**, y la página nunca debe suponerlo.
+
+### 24.5. Lo que queda cerrado
+
+Con esta sección termina el bloque de base de datos de la versión mínima:
+
+- **Nadie lee, crea ni modifica nada sin pasar por una ventanilla**, tampoco el admin.
+- **Cada ventanilla comprueba el permiso, valida los datos y queda apuntada** a nombre del usuario real.
+- **Los errores salen en castellano** y no enseñan datos que no se deberían ver.
+
+| Tabla | Consultar | Buscar | Crear | Modificar |
+|---|---|---|---|---|
+| `activos` | `consultar_activo` | `buscar_activos` | `crear_activo` | `modificar_activo` |
+| `fondos` | `consultar_fondo` | `buscar_fondos` | `crear_fondo` | `modificar_fondo` |
+| `suministros` | `consultar_suministro` | `buscar_suministros` | `crear_suministro` | `modificar_suministro` |
+
+Doce ventanillas: es el catálogo de operaciones de la aplicación, como el de una API.
+
+### 24.6. Preguntas previsibles
+
+**"¿Y borrar?"**
+
+No hay ninguna ventanilla de borrado, y sin políticas nadie puede hacer un `DELETE`. Es a propósito: en una gestora, un activo vendido no se borra, se pasa a `VENDIDO`, y la historia completa se conserva. Si hiciera falta, sería una función aparte, solo para el admin, y quedaría apuntada como `BORRADO`.
+
+**"Si las tablas no tienen políticas, ¿para qué sirve RLS?"**
+
+Precisamente para eso: con RLS activado y sin políticas, **la respuesta por defecto es "no"** para cualquier usuario de la aplicación. Las funciones `SECURITY DEFINER` son la única vía, y cada una decide quién pasa. Si mañana alguien añadiera una tabla nueva con RLS y sin políticas, nacería cerrada.
+
+**"¿Qué pasa si alguien encuentra la forma de llamar a una función sin la página?"**
+
+Nada que no pudiera hacer desde la página. Las funciones se pueden llamar desde la consola (así se han hecho todas las pruebas), y por eso cada una comprueba el permiso por dentro, en lugar de confiar en que la página solo enseñe botones a quien puede usarlos.
+
+---
+
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
