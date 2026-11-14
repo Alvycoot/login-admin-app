@@ -2575,7 +2575,7 @@ El login pasa de una tarjeta sencilla a una portada con identidad propia. Es lo 
 - **Los iconos** se redibujaron en SVG copiando el detalle de los originales (trazo fino, brillo de neón con `drop-shadow`). Al ser vectoriales se ven nítidos a cualquier tamaño y cambian de color con la sección.
 - **La corriente por los circuitos.** Sobre la imagen hay un SVG con las pistas de arriba trazadas encima de las del dibujo. Cada línea tiene `stroke-dasharray: 70 5000`, un trazo de 70 unidades y un hueco enorme, y al animar `stroke-dashoffset` el trazo recorre la pista como un haz de luz. Para que la luz no se salga, se recorta con una **máscara** hecha con los píxeles reales de las pistas. El lado derecho es el izquierdo reflejado (`<use>` con `scale(-1 1)`).
 - **Los resaltes** (tarjetas y botón) solo animan **opacidad**: un velo del color de la sección en las tarjetas, y un halo y un velo claro en el botón.
-- **Siempre en oscuro**, aunque el sistema esté en claro, porque la imagen es oscura: el login tiene su propia paleta dentro de `.pagina-login`.
+- **Siempre en oscuro**, aunque el sistema esté en claro, porque la imagen es oscura. Más adelante (sección 26), toda la aplicación pasó a una sola paleta oscura.
 - **Accesibilidad.** Con el teclado, el botón enciende el mismo resalte que con el cursor (la esquina recortada cortaría el contorno de foco). Si el sistema pide reducir el movimiento, se ocultan los circuitos.
 
 ### 25.5. Lo que se aprendió por el camino
@@ -2599,6 +2599,71 @@ La generé con Gemini a partir de un brief mío y la elegí entre varias version
 **"¿Por qué no usar un framework (React, Tailwind…)?"**
 
 Para aprender lo que hay debajo. Con HTML, CSS y JavaScript sin capas intermedias, cada decisión de esta sección se ve y se puede explicar. Pasar a un framework más adelante sería traducir, no reaprender.
+
+## 26. Las pantallas — la identidad de activos y un sistema de diseño común
+
+Con el login terminado, la pantalla de activos se rediseñó para que tuviera la misma identidad. Se hizo primero una **maqueta completa** fuera del repositorio, con el buscador, la lista, la ficha y los formularios con datos ficticios, para decidir la línea visual de todos los pasos de una vez.
+
+### 26.1. Sintonía con el login, pero no una copia
+
+El login es una portada: se ve unos segundos y puede permitirse una imagen a pantalla completa y circuitos en movimiento. Activos es una pantalla de trabajo, en la que alguien pasa mucho rato leyendo datos. Por eso:
+
+- **Se comparte la identidad:** colores, fuentes (Rajdhani en títulos, Saira en el texto), esquinas recortadas, botones con relieve, etiquetas y la animación de entrada.
+- **El fondo es tranquilo:** la rejilla del login, muy tenue, con una viñeta que oscurece los bordes.
+- **El movimiento se queda en la cabecera.** La cabecera es la franja superior de la imagen del login, con sus circuitos y sus haces de luz; nada se mueve detrás de los datos.
+
+### 26.2. Solo entra al repositorio lo que funciona
+
+De la maqueta, al repositorio solo pasó lo que el paso 1 ya hace de verdad: la cabecera con el nombre y el rol, la tarjeta "Tu sesión" y una tarjeta nueva, **"Sin acceso"**, para quien no tiene la sección Activos (el lector de prueba). El buscador, la ficha y los formularios entrarán con los pasos 2, 3 y 4, cada uno ya conectado a la base de datos, usando la maqueta como plano. **En el repositorio no hay un buscador que no busca.**
+
+```js
+if (perfil.secciones_lectura.includes("ACTIVOS")) {
+    pintarSecciones(document.getElementById("secciones-lectura"), perfil.secciones_lectura);
+    pintarSecciones(document.getElementById("secciones-escritura"), perfil.secciones_escritura);
+} else {
+    document.getElementById("tarjeta-sesion").hidden = true;
+    document.getElementById("sin-acceso").hidden = false;
+    pintarSecciones(document.getElementById("secciones-lector"), perfil.secciones_lectura);
+}
+```
+
+Como siempre, la página solo decide qué enseñar: aunque el lector se saltara esta comprobación, cualquier ventanilla de activos le diría que no.
+
+### 26.3. Un sistema de diseño común
+
+`estilos-formal.css` se reorganizó para que login y activos compartan piezas en lugar de repetirlas:
+
+1. **Una sola paleta, oscura.** Antes había una paleta clara, una oscura que se activaba si el sistema lo pedía y una copia de la oscura dentro del login. Con toda la aplicación en oscuro, sobraban las dos primeras y la copia.
+2. **Un solo botón principal, `.boton-relieve`.** "Entrar" y los futuros "Nuevo activo" y "Guardar" son el mismo diseño: el login solo ajusta las medidas (en `cqw`, porque todo el login escala con la imagen). Si mañana cambia el botón, cambia en todas partes.
+3. **Un botón secundario, `.boton-linea`**, con la misma letra, altura y esquina que el principal, pero solo con contorno ("Cerrar sesión", y después "Editar" y "Cancelar").
+4. **Las etiquetas** (rol, estado y sección) con el estilo "esquina recortada y relieve": fondo teñido con su propio color, brillo arriba y canto abajo. Las de sección llevan un cuadradito que las distingue de las de estado.
+5. **Los bloques** (`.bloque`) tienen las esquinas de los paneles del login: la superior izquierda pequeña y la inferior derecha grande.
+
+### 26.4. Dos técnicas que aparecen en todas las piezas
+
+**El borde de una forma recortada.** `clip-path` recorta el elemento, y con él su borde y su sombra. Para dibujar el contorno de un bloque recortado se usan dos capas con la misma forma: la de fuera, del color de la línea, y la de dentro, 1 px más pequeña, del color del relleno.
+
+```css
+.bloque::before, .bloque::after {
+  clip-path: polygon(var(--c1) 0, 100% 0, 100% calc(100% - var(--c2)), calc(100% - var(--c2)) 100%, 0 100%, 0 var(--c1));
+}
+.bloque::before { inset: 0; background: var(--linea-fuerte); }  /* la línea */
+.bloque::after { inset: 1px; background: var(--panel); }       /* el relleno */
+```
+
+**La sombra de una forma recortada.** Por la misma razón, un `box-shadow` no sobrevive al recorte. La sombra la pone un envoltorio con `filter: drop-shadow`, que sí sigue la forma de lo que contiene (`.sombra` en los botones y `.sombra-pildora` en las etiquetas).
+
+### 26.5. Cómo se probó
+
+| # | Prueba | Resultado |
+|---|---|---|
+| 1 | Entrar como editor | Cabecera con circuitos, "EDITOR"; "Tu sesión": lee y escribe Activos |
+| 2 | Entrar como lector | "No tienes acceso a Activos"; lee Fondos y Suministros |
+| 3 | Login después de la reorganización | Igual que antes, comparado con una captura previa |
+
+### 26.6. Lo que ya está decidido para los pasos siguientes
+
+La maqueta dejó decididos el buscador, la lista y la ficha, que se despliega de izquierda a derecha en tres tiempos (el panel, el nombre y los datos), y una decisión de datos: **la ficha mostrará el nombre del fondo propietario**, no solo su número. El editor no tiene la sección Fondos, así que la `032` ampliará `consultar_activo` para entregar el nombre (solo el nombre: el CIF y el IBAN siguen protegidos).
 
 ---
 

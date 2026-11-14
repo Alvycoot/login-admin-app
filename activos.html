@@ -6,33 +6,73 @@
   <title>Activos</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Rajdhani:wght@600;700&family=Saira:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="estilos-formal.css">
 </head>
-<body>
+<body class="pagina-app">
   <!-- Oculto hasta comprobar la sesión: así nadie ve la página ni un instante sin haber entrado. -->
-  <header class="cabecera aparece" id="cabecera" hidden>
-    <div>
-      <p class="eyebrow">Gestión de activos</p>
-      <h1>Activos</h1>
+  <header class="cabecera" id="cabecera" hidden>
+    <div class="franja-circuitos">
+      <!-- Corriente por los circuitos: las mismas pistas que en el login, en el recorte superior de la imagen -->
+      <svg class="circuitos" viewBox="0 0 2752 240" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <mask id="mascara-cabecera" maskUnits="userSpaceOnUse" x="0" y="0" width="2752" height="240">
+            <image href="img/cabecera-mascara.png" x="0" y="0" width="2752" height="240"/>
+          </mask>
+          <g id="pistas-izq">
+            <path class="pista" d="M34 250V69L76 27H580" style="--fin: 1644; --dur: 11.4s; --d: 3.5s"/>
+            <path class="pista" d="M55 250V81L86 50H521" style="--fin: 1398; --dur: 9.9s; --d: 0s"/>
+            <path class="pista" d="M428 70L462 104H607L623 88H753" style="--fin: 1096; --dur: 7.8s; --d: 1.2s"/>
+            <path class="pista" d="M387 70L440 124H633" style="--fin: 1169; --dur: 8.3s; --d: 4.6s"/>
+            <path class="pista" d="M354 70L426 144H703" style="--fin: 980; --dur: 7s; --d: 2.4s"/>
+            <path class="pista" d="M296 50L409 165H680" style="--fin: 1182; --dur: 8.3s; --d: 5.8s"/>
+            <path class="pista" d="M284 124H340L413 198H753" style="--fin: 1400; --dur: 9.8s; --d: .6s"/>
+            <path class="pista" d="M285 154H369L413 198H753" style="--fin: 1536; --dur: 10.7s; --d: 6.9s"/>
+          </g>
+        </defs>
+        <g mask="url(#mascara-cabecera)">
+          <use href="#pistas-izq"/>
+          <use href="#pistas-izq" transform="translate(2752 0) scale(-1 1)" style="--extra: 2.9s"/>
+          <path class="pista" d="M316 70H565L606 27H2146L2187 70H2437" style="--fin: 2758; --dur: 18.9s; --d: 1.8s"/>
+        </g>
+      </svg>
     </div>
-    <div class="usuario">
-      <span class="usuario-nombre" id="nombre-usuario"></span>
-      <span class="pildora" id="rol-usuario"></span>
-      <button type="button" class="boton-secundario" id="boton-salir">Cerrar sesión</button>
+
+    <div class="cabecera-contenido aparece">
+      <div>
+        <p class="eyebrow">Gestión de activos</p>
+        <h1>Activos</h1>
+      </div>
+      <div class="usuario">
+        <span class="usuario-nombre" id="nombre-usuario"></span>
+        <span class="sombra-pildora"><span class="pildora" id="rol-usuario"></span></span>
+        <button type="button" class="boton-linea" id="boton-salir"><span class="borde-acento"></span>Cerrar sesión</button>
+      </div>
     </div>
   </header>
 
-  <main class="contenido" id="contenido" hidden>
-    <section class="tarjeta aparece-2">
+  <main class="trabajo" id="contenido" hidden>
+    <!-- Lo que ve quien tiene la sección Activos -->
+    <section class="bloque tarjeta-sesion aparece-2" id="tarjeta-sesion">
       <p class="eyebrow">Paso 1</p>
       <h2>Tu sesión</h2>
       <p class="texto-suave">El buscador de activos llegará en el paso 2. De momento, esto es lo que la base de datos dice que puedes hacer:</p>
       <dl class="permisos">
-        <dt>Puedes leer</dt>
+        <dt>Lees</dt>
         <dd id="secciones-lectura"></dd>
-        <dt>Puedes escribir</dt>
+        <dt>Escribes</dt>
         <dd id="secciones-escritura"></dd>
+      </dl>
+    </section>
+
+    <!-- Lo que ve quien no tiene la sección Activos -->
+    <section class="bloque sin-acceso aparece-2" id="sin-acceso" hidden>
+      <p class="eyebrow">Sin acceso</p>
+      <h2>No tienes acceso a Activos</h2>
+      <p class="texto-suave">Tu perfil no incluye esta sección. Si la necesitas, pídesela a un administrador.</p>
+      <dl class="permisos">
+        <dt>Lees</dt>
+        <dd id="secciones-lector"></dd>
       </dl>
     </section>
   </main>

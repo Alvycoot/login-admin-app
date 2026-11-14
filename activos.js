@@ -26,6 +26,7 @@ async function iniciar() {
 }
 
 // 2. Rellena la cabecera y la tarjeta con lo que ha devuelto mi_perfil().
+//    Quien no tiene la sección Activos ve la tarjeta "Sin acceso" en lugar de la de su sesión.
 function mostrarPerfil(perfil) {
     document.getElementById("nombre-usuario").textContent = perfil.nombre;
 
@@ -33,14 +34,21 @@ function mostrarPerfil(perfil) {
     rol.textContent = perfil.rol;
     rol.classList.add("rol-" + perfil.rol.toLowerCase());
 
-    pintarSecciones(document.getElementById("secciones-lectura"), perfil.secciones_lectura);
-    pintarSecciones(document.getElementById("secciones-escritura"), perfil.secciones_escritura);
+    if (perfil.secciones_lectura.includes("ACTIVOS")) {
+        pintarSecciones(document.getElementById("secciones-lectura"), perfil.secciones_lectura);
+        pintarSecciones(document.getElementById("secciones-escritura"), perfil.secciones_escritura);
+    } else {
+        document.getElementById("tarjeta-sesion").hidden = true;
+        document.getElementById("sin-acceso").hidden = false;
+        pintarSecciones(document.getElementById("secciones-lector"), perfil.secciones_lectura);
+    }
 
     document.getElementById("cabecera").hidden = false;
     document.getElementById("contenido").hidden = false;
 }
 
-// 3. Una píldora por sección, o "Ninguna" si la lista viene vacía.
+// 3. Una etiqueta por sección, o "Ninguna" si la lista viene vacía.
+//    Cada etiqueta va dentro de su envoltorio de sombra (.sombra-pildora).
 function pintarSecciones(contenedor, secciones) {
     if (secciones.length === 0) {
         const vacio = document.createElement("span");
@@ -51,10 +59,13 @@ function pintarSecciones(contenedor, secciones) {
     }
 
     for (const seccion of secciones) {
+        const envoltorio = document.createElement("span");
+        envoltorio.className = "sombra-pildora";
         const pildora = document.createElement("span");
         pildora.className = "pildora pildora-seccion seccion-" + seccion.toLowerCase();
         pildora.textContent = NOMBRES_SECCION[seccion] || seccion;
-        contenedor.appendChild(pildora);
+        envoltorio.appendChild(pildora);
+        contenedor.appendChild(envoltorio);
     }
 }
 

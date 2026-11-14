@@ -1,80 +1,41 @@
 /* ============================================================
-   Sistema de diseño (basado en las visualizaciones de suministros)
+   Sistema de diseño
+   Toda la aplicación va en oscuro, con una sola paleta.
    Todos los colores viven en variables: cambiar el estilo es
    cambiar estas líneas.
    ============================================================ */
 
 :root {
-  --fondo: #F4F6F5;
-  --superficie: #FFFFFF;
-  --tinta: #1A2430;
-  --tinta-suave: #566169;
-  --linea: #C3CBCE;
-  --linea-fuerte: #8C9AA0;
-  --relleno-apagado: #E2E7E6;
-  --tinta-apagada: #5B6B70;
-  --acento: #1B4B5A;
-  --acento-hover: #143A46;
-  --acento-suave: #D9E4E3;
-  --error: #B3261E;
-  --error-suave: #F9DEDC;
-  --exito: #2E7D4F;
-  --exito-suave: #DCEFE3;
+  --fondo: #12181D;
+  --panel: #161E25;
+  --superficie: #1A2229;
+  --tinta: #E7ECEE;
+  --tinta-suave: #A7B3B8;
+  --tinta-apagada: #93A2A8;
+  --linea: #3B454B;
+  --linea-tenue: #2E383E;
+  --linea-fuerte: #56636A;
+  --relleno-apagado: #232D33;
+  --acento: #4FA3B4;
+  --acento-oscuro: #2B6B78;
+  --acento-suave: #223A3E;
+  --error: #F2B8B5;
+  --error-suave: #3B1E1C;
+  --exito: #8FD3A8;
+  --exito-suave: #1C3326;
 
   /* Estados de un activo */
-  --compra: #1B4B5A;
-  --compra-suave: #D9E4E3;
-  --obra: #B9791A;
-  --obra-suave: #FBEFD9;
-  --venta: #2E6F9E;
-  --venta-suave: #E0EDF6;
-  --vendido: #6E4FA3;
-  --vendido-suave: #EEE8F7;
+  --compra: #4FA3B4;
+  --obra: #E3B354;
+  --venta: #74AEDD;
+  --vendido: #B49BE0;
 
   /* Secciones de la aplicación */
-  --sec-activos: #1B4B5A;
-  --sec-fondos: #B9791A;
-  --sec-suministros: #2E6F9E;
+  --sec-activos: #4FA3B4;
+  --sec-fondos: #E3B354;
+  --sec-suministros: #74AEDD;
 
-  --radio: 10px;
-  --sombra: 0 1px 2px rgba(26, 36, 48, 0.06), 0 8px 24px rgba(26, 36, 48, 0.08);
-  --transicion: 0.18s ease;
-
-  color-scheme: light dark;
-}
-
-/* Tema oscuro: se activa solo si el sistema lo pide,
-   salvo que la página fuerce el claro con data-theme="light". */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --fondo: #12181D;
-    --superficie: #1A2229;
-    --tinta: #E7ECEE;
-    --tinta-suave: #A7B3B8;
-    --linea: #3B454B;
-    --linea-fuerte: #56636A;
-    --relleno-apagado: #232D33;
-    --tinta-apagada: #93A2A8;
-    --acento: #4FA3B4;
-    --acento-hover: #6BB8C7;
-    --acento-suave: #223A3E;
-    --error: #F2B8B5;
-    --error-suave: #3B1E1C;
-    --exito: #8FD3A8;
-    --exito-suave: #1C3326;
-    --compra: #4FA3B4;
-    --compra-suave: #223A3E;
-    --obra: #E3B354;
-    --obra-suave: #2E2712;
-    --venta: #74AEDD;
-    --venta-suave: #17232E;
-    --vendido: #B49BE0;
-    --vendido-suave: #241C33;
-    --sec-activos: #4FA3B4;
-    --sec-fondos: #E3B354;
-    --sec-suministros: #74AEDD;
-    --sombra: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
-  }
+  color-scheme: dark;
 }
 
 /* ---------- Base ---------- */
@@ -86,223 +47,210 @@ body {
   margin: 0;
   background: var(--fondo);
   color: var(--tinta);
-  font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+  font-family: "Saira", "IBM Plex Sans", sans-serif;
+  font-size: 15px;
   line-height: 1.5;
 }
 
-h1, h2 {
+h1, h2, h3 {
   margin: 0;
+  font-family: "Rajdhani", sans-serif;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
   text-wrap: balance;
 }
 
 .eyebrow {
+  margin: 0;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--acento);
-  margin: 0;
 }
 
-/* ---------- Formularios y botones ---------- */
+.texto-suave { color: var(--tinta-suave); }
 
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
+/* ---------- Campos ---------- */
 
 /* Cada etiqueta va pegada a su campo; el aire grande queda entre un grupo y otro. */
-.campo {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
+.campo { display: flex; flex-direction: column; gap: 5px; }
 
-label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--tinta-suave);
-}
+label { font-size: 13px; font-weight: 600; color: var(--tinta-suave); }
 
-input {
-  background: var(--superficie);
-  border: 1px solid var(--linea-fuerte);
-  border-radius: 8px;
-  padding: 0.6rem 0.8rem;
+/* Esquina superior derecha recortada, como los botones.
+   Misma altura para campos y desplegables (el desplegable sale algo más alto por defecto). */
+input, select {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  font: inherit;
   color: var(--tinta);
-  font-family: inherit;
-  font-size: 1rem;
-  transition: border-color var(--transicion), box-shadow var(--transicion);
-}
-
-input:focus-visible {
-  outline: none;
-  border-color: var(--acento);
-  box-shadow: 0 0 0 3px var(--acento-suave);
-}
-
-button {
-  font-family: inherit;
-  font-size: 1rem;
-  font-weight: 600;
-  border-radius: 8px;
-  padding: 0.65rem 1rem;
-  cursor: pointer;
-  transition: background var(--transicion), border-color var(--transicion), transform 0.1s ease;
-}
-
-button:active { transform: scale(0.98); }
-
-button:focus-visible {
-  outline: 2px solid var(--acento);
-  outline-offset: 2px;
-}
-
-.boton-principal {
-  background: var(--acento);
-  color: var(--superficie);
-  border: 1px solid var(--acento);
-}
-
-.boton-principal:hover { background: var(--acento-hover); border-color: var(--acento-hover); }
-
-.boton-secundario {
-  background: var(--superficie);
-  color: var(--tinta);
+  background: var(--fondo);
   border: 1px solid var(--linea-fuerte);
-  font-size: 0.875rem;
-  padding: 0.45rem 0.9rem;
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
 }
 
-.boton-secundario:hover { border-color: var(--acento); color: var(--acento); }
+input:focus-visible, select:focus-visible { outline: none; border-color: var(--acento); background: #0F1519; }
+input::placeholder { color: #6F7D83; }
 
-/* ---------- Píldoras (rol, secciones, estados) ---------- */
+/* ---------- Botones ---------- */
+
+button { font: inherit; cursor: pointer; }
+
+/* Botón principal: esquina recortada y relieve.
+   El canto y la sombra los pone el envoltorio .sombra con drop-shadow, porque clip-path cortaría un box-shadow.
+   El resalte solo anima la OPACIDAD de dos capas (un halo difuminado detrás y un velo claro sobre el fondo),
+   que el navegador mueve en la tarjeta gráfica desde el primer fotograma.
+   Animar filtros (drop-shadow, brightness) arranca algo más tarde y se nota.
+   Estructura: <div class="zona-boton"><span class="halo"></span><div class="sombra"><button class="boton-relieve"> */
+.zona-boton { position: relative; isolation: isolate; display: inline-block; }
+
+.halo {
+  position: absolute;
+  inset: 0 0 -4px 0;
+  z-index: -1;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--acento) 70%, transparent);
+  filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+/* Las sombras del relieve son fijas; solo cambian al pulsar, y rápido */
+.sombra {
+  filter: drop-shadow(0 4px 0 var(--acento-oscuro)) drop-shadow(0 8px 12px rgba(0, 0, 0, 0.45));
+  transition: filter 0.1s ease;
+}
+
+.sombra:has(> .boton-relieve:active) {
+  filter: drop-shadow(0 1px 0 var(--acento-oscuro)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45));
+}
+
+.boton-relieve {
+  position: relative;
+  height: 38px;
+  padding: 0 22px;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #0D1418;
+  border: 0;
+  background: linear-gradient(180deg, #63B6C6, var(--acento));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+  transition: transform 0.1s ease;
+}
+
+/* Velo claro: encima del fondo y debajo del texto (z-index -1 dentro del botón).
+   Su color está calculado para dar el mismo tono que un brillo del 112 %. */
+.boton-relieve::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(125, 226, 246, 0.5), rgba(105, 205, 226, 0.5));
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.boton-relieve:active { transform: translateY(3px); }
+
+/* La esquina recortada también recortaría el contorno de foco: con el teclado se enciende el mismo resalte. */
+.boton-relieve:focus-visible { outline: none; }
+.zona-boton:has(.boton-relieve:focus-visible) .halo, .boton-relieve:focus-visible::after { opacity: 1; }
+
+/* Botón secundario: la misma letra, altura y esquina que el principal, pero solo con contorno.
+   El contorno son dos capas recortadas (línea y relleno); al pasar el cursor se enciende
+   una tercera en acento (.borde-acento), también por opacidad.
+   Estructura: <button class="boton-linea"><span class="borde-acento"></span>Texto</button> */
+.boton-linea {
+  position: relative;
+  isolation: isolate;
+  height: 38px;
+  padding: 0 20px;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tinta);
+  background: transparent;
+  border: 0;
+  transition: color 0.25s ease;
+  --p: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+}
+
+.boton-linea::before, .boton-linea::after { content: ""; position: absolute; z-index: -1; clip-path: var(--p); }
+.boton-linea::before { inset: 0; background: var(--linea-fuerte); }
+.boton-linea::after { inset: 1px; background: var(--superficie); }
+.boton-linea .borde-acento { position: absolute; inset: 0; z-index: -1; clip-path: var(--p); background: var(--acento); opacity: 0; transition: opacity 0.25s ease; pointer-events: none; }
+.boton-linea:active { transform: translateY(1px); }
+.boton-linea:focus-visible { outline: none; color: var(--acento); }
+.boton-linea:focus-visible .borde-acento { opacity: 1; }
+
+@media (hover: hover) {
+  .zona-boton:has(.boton-relieve:hover) .halo, .boton-relieve:hover::after { opacity: 1; }
+  .boton-linea:hover { color: var(--acento); }
+  .boton-linea:hover .borde-acento { opacity: 1; }
+}
+
+/* ---------- Etiquetas (rol, estado y sección) ----------
+   Estilo "esquina recortada + relieve": esquina superior derecha cortada, fondo teñido con su propio color,
+   brillo arriba y canto oscuro abajo. La sombra la pone el envoltorio .sombra-pildora (clip-path cortaría un box-shadow).
+   Las de sección llevan además un cuadradito de color, que las distingue de las de estado.
+   Estructura: <span class="sombra-pildora"><span class="pildora ..."> */
+
+.sombra-pildora { display: inline-flex; filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55)); }
 
 .pildora {
-  display: inline-block;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 999px;
-  white-space: nowrap;
-  background: var(--relleno-apagado);
-  color: var(--tinta-apagada);
-}
-
-.rol-admin { background: var(--acento); color: var(--superficie); }
-.rol-editor { background: var(--acento-suave); color: var(--acento); }
-.rol-lector { background: var(--relleno-apagado); color: var(--tinta-apagada); }
-
-.estado-compra { background: var(--compra-suave); color: var(--compra); }
-.estado-en-obra { background: var(--obra-suave); color: var(--obra); }
-.estado-en-venta { background: var(--venta-suave); color: var(--venta); }
-.estado-vendido { background: var(--vendido-suave); color: var(--vendido); }
-
-/* Las secciones van con borde y un punto de color, sin relleno,
-   para no confundirlas con las píldoras de estado. */
-.pildora-seccion {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: transparent;
-  border: 1px solid currentColor;
+  padding: 3px 11px 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--tinta-apagada);
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -2px 0 rgba(0, 0, 0, 0.35);
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
 }
 
-.pildora-seccion::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-}
+.rol-admin { background: var(--acento); color: #0D1418; }
+.rol-editor { color: var(--acento); }
 
+.estado-compra { color: var(--compra); }
+.estado-en-obra { color: var(--obra); }
+.estado-en-venta { color: var(--venta); }
+.estado-vendido { color: var(--vendido); }
+
+.pildora-seccion::before { content: ""; width: 7px; height: 7px; background: currentColor; }
 .seccion-activos { color: var(--sec-activos); }
 .seccion-fondos { color: var(--sec-fondos); }
 .seccion-suministros { color: var(--sec-suministros); }
 
 /* ---------- Mensajes ---------- */
 
-#mensaje {
-  margin: 1rem 0 0;
-  font-size: 0.875rem;
-  text-align: center;
-}
-
+#mensaje { margin: 16px 0 0; font-size: 14px; text-align: center; }
 #mensaje:empty { display: none; }
 
-.mensaje-error {
-  color: var(--error);
-  background: var(--error-suave);
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem;
-}
+.mensaje-error { color: var(--error); background: var(--error-suave); padding: 8px 12px; }
+.mensaje-exito { color: var(--exito); background: var(--exito-suave); padding: 8px 12px; }
 
-.mensaje-exito {
-  color: var(--exito);
-  background: var(--exito-suave);
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem;
-}
-
-/* ============================================================
-   Página de login
-   Va siempre en oscuro, porque la imagen de fondo es oscura:
-   repite aquí la paleta del tema oscuro, sea cual sea el del sistema.
-   ============================================================ */
-
-.pagina-login {
-  --fondo: #12181D;
-  --panel: #161E25;
-  --superficie: #1A2229;
-  --tinta: #E7ECEE;
-  --tinta-suave: #A7B3B8;
-  --linea: #3B454B;
-  --linea-fuerte: #56636A;
-  --acento: #4FA3B4;
-  --acento-oscuro: #2B6B78;
-  --error: #F2B8B5;
-  --error-suave: #3B1E1C;
-  --exito: #8FD3A8;
-  --exito-suave: #1C3326;
-  --sec-activos: #4FA3B4;
-  --sec-fondos: #E3B354;
-  --sec-suministros: #74AEDD;
-
-  height: 100vh;
-  overflow: hidden;
-  background: var(--fondo);
-  font-family: "Saira", "IBM Plex Sans", sans-serif;
-  color-scheme: dark;
-}
-
-/* El escenario tiene siempre las proporciones de la imagen (2752 x 1536) y cubre la ventana.
-   Todo lo de dentro se coloca en porcentajes y los textos se miden en cqw
-   (1 cqw = 1 % del ancho del escenario): todo crece y encoge a la vez
-   y nunca se descoloca respecto a la imagen. */
-.escenario {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  width: max(100vw, calc(100vh * 2752 / 1536));
-  aspect-ratio: 2752 / 1536;
-  transform: translate(-50%, -50%);
-  background: url("img/fondo-login.webp") center / 100% 100% no-repeat;
-  container-type: inline-size;
-}
-
-.franja, .panel, .marco { position: absolute; }
-
-/* Corriente por los circuitos de arriba.
+/* ---------- Corriente por los circuitos (login y cabecera de la aplicación) ----------
    Cada pista lleva encima una línea que solo enseña un trazo corto (70 unidades) y un hueco enorme;
    al mover el desfase, ese trazo recorre la pista como un haz de luz. --fin es el largo de la pista
    más un tramo de "pausa" (el haz sigue fuera de la pista), así cada una descansa entre pasadas.
    La máscara (los píxeles reales de las pistas) impide que la luz se salga.
    Ojo: la clase va en cada pista porque a las copias de <use> no les llegan selectores como ".circuitos path",
    y el desfase final necesita unidad (-1px): sin ella el navegador descarta la animación en silencio. */
+
 .circuitos {
   position: absolute;
   inset: 0;
@@ -310,7 +258,7 @@ button:focus-visible {
   height: 100%;
   pointer-events: none;
   opacity: 0.75;
-  filter: drop-shadow(0 0 0.25cqw var(--acento));
+  filter: drop-shadow(0 0 4px var(--acento));
 }
 
 .pista {
@@ -328,6 +276,31 @@ button:focus-visible {
   to { stroke-dashoffset: calc(var(--fin) * -1px); }
 }
 
+/* ============================================================
+   Página de login
+   ============================================================ */
+
+.pagina-login { height: 100vh; overflow: hidden; }
+
+/* El escenario tiene siempre las proporciones de la imagen (2752 x 1536) y cubre la ventana.
+   Todo lo de dentro se coloca en porcentajes y los textos se miden en cqw
+   (1 cqw = 1 % del ancho del escenario): todo crece y encoge a la vez
+   y nunca se descoloca respecto a la imagen. */
+.escenario {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: max(100vw, calc(100vh * 2752 / 1536));
+  aspect-ratio: 2752 / 1536;
+  transform: translate(-50%, -50%);
+  background: url("img/fondo-login.webp") center / 100% 100% no-repeat;
+  container-type: inline-size;
+}
+
+.escenario .circuitos { filter: drop-shadow(0 0 0.25cqw var(--acento)); }
+
+.franja, .panel, .marco { position: absolute; }
+
 /* Las dos franjas superiores */
 .franja {
   top: 17.6%;
@@ -341,7 +314,7 @@ button:focus-visible {
 .franja.izq { left: 5.2%; width: 21.4%; }
 .franja.der { left: 73.35%; width: 21.4%; align-items: flex-end; text-align: right; }
 
-.franja .eyebrow, .formulario .eyebrow { font-size: 0.62cqw; letter-spacing: 0.12em; }
+.franja .eyebrow, .formulario .eyebrow { font-size: 0.62cqw; }
 .franja strong { font-family: "Rajdhani", sans-serif; font-size: 1.35cqw; font-weight: 700; letter-spacing: 0.02em; line-height: 1.1; }
 .franja.der strong { font-size: 1cqw; font-weight: 600; color: var(--tinta-suave); }
 
@@ -376,7 +349,7 @@ button:focus-visible {
 }
 
 .panel .texto { padding: 0 0.8cqw 0 1.5cqw; }
-.panel h3 { margin: 0 0 0.25cqw; font-family: "Rajdhani", sans-serif; font-size: 1.15cqw; font-weight: 700; letter-spacing: 0.02em; line-height: 1.05; white-space: nowrap; transition: text-shadow 0.25s ease; }
+.panel h3 { margin: 0 0 0.25cqw; font-size: 1.15cqw; line-height: 1.05; white-space: nowrap; transition: text-shadow 0.25s ease; }
 .panel p { margin: 0; font-size: 0.74cqw; line-height: 1.4; color: var(--tinta-suave); }
 
 .c-activos { color: var(--sec-activos); }
@@ -400,6 +373,12 @@ button:focus-visible {
   clip-path: polygon(0.9cqw 0, 100% 0, 100% calc(100% - 2cqw), calc(100% - 2cqw) 100%, 0 100%, 0 0.9cqw);
 }
 
+@media (hover: hover) {
+  .panel:hover::before { opacity: 1; }
+  .panel:hover svg { filter: drop-shadow(0 0 0.3cqw var(--c)) drop-shadow(0 0 0.08cqw var(--c)); transform: scale(1.06); }
+  .panel:hover h3 { text-shadow: 0 0 0.5cqw color-mix(in srgb, var(--c) 55%, transparent); }
+}
+
 /* El formulario, dentro del marco central de la imagen */
 .marco {
   left: 30%;
@@ -412,96 +391,22 @@ button:focus-visible {
 }
 
 .formulario { width: 62%; }
-.formulario h1 { font-family: "Rajdhani", sans-serif; font-size: 2.3cqw; letter-spacing: 0.01em; margin: 0.1cqw 0 1.3cqw; }
+/* Interlineado de 1.5 (el del login aprobado); el resto de títulos de la aplicación va a 1.1 */
+.formulario h1 { font-size: 2.3cqw; line-height: 1.5; letter-spacing: 0.01em; margin: 0.1cqw 0 1.3cqw; }
 
-.pagina-login form { display: block; }
+/* Medidas del login en cqw (el resto de la aplicación usa px) */
 .pagina-login .campo { gap: 0.35cqw; margin-bottom: 1cqw; }
 .pagina-login label { font-size: 0.78cqw; }
+.pagina-login input { height: auto; font-size: 0.9cqw; padding: 0.6cqw 0.8cqw; clip-path: polygon(0 0, calc(100% - 0.6cqw) 0, 100% 0.6cqw, 100% 100%, 0 100%); }
+.pagina-login .zona-boton { display: block; margin-top: 1.4cqw; }
+.pagina-login .halo { inset: 0 0 -0.25cqw 0; filter: blur(0.4cqw); }
+.pagina-login .sombra { filter: drop-shadow(0 0.25cqw 0 var(--acento-oscuro)) drop-shadow(0 0.6cqw 0.8cqw rgba(0, 0, 0, 0.45)); }
+.pagina-login .sombra:has(> .boton-relieve:active) { filter: drop-shadow(0 0.06cqw 0 var(--acento-oscuro)) drop-shadow(0 0.25cqw 0.35cqw rgba(0, 0, 0, 0.45)); }
+.pagina-login .boton-relieve { width: 100%; height: auto; font-size: 1.1cqw; padding: 0.65cqw; clip-path: polygon(0 0, calc(100% - 0.8cqw) 0, 100% 0.8cqw, 100% 100%, 0 100%); }
+.pagina-login .boton-relieve:active { transform: translateY(0.18cqw); }
+.pagina-login #mensaje { margin-top: 1.2cqw; font-size: 0.78cqw; }
 
-.pagina-login input {
-  font-size: 0.9cqw;
-  padding: 0.6cqw 0.8cqw;
-  border-radius: 0;
-  background: var(--fondo);
-  clip-path: polygon(0 0, calc(100% - 0.6cqw) 0, 100% 0.6cqw, 100% 100%, 0 100%);
-}
-
-.pagina-login input:focus-visible { box-shadow: none; background: #0F1519; }
-
-/* Botón con esquina recortada y relieve. El resalte usa el mismo mecanismo que las tarjetas:
-   solo se anima la OPACIDAD de dos capas (un halo difuminado detrás y un velo claro sobre el fondo),
-   que el navegador mueve en la tarjeta gráfica desde el primer fotograma.
-   Animar filtros (drop-shadow, brightness) arranca algo más tarde y se nota. */
-.zona-boton { position: relative; isolation: isolate; margin-top: 1.4cqw; }
-
-.halo {
-  position: absolute;
-  inset: 0 0 -0.25cqw 0;
-  z-index: -1;
-  pointer-events: none;
-  background: color-mix(in srgb, var(--acento) 70%, transparent);
-  filter: blur(0.4cqw);
-  opacity: 0;
-  transition: opacity 0.25s ease;
-}
-
-/* Las sombras del relieve son fijas; solo cambian al pulsar, y rápido */
-.sombra {
-  filter: drop-shadow(0 0.25cqw 0 var(--acento-oscuro)) drop-shadow(0 0.6cqw 0.8cqw rgba(0, 0, 0, 0.45));
-  transition: filter 0.1s ease;
-}
-
-.sombra:has(> .boton-login:active) {
-  filter: drop-shadow(0 0.06cqw 0 var(--acento-oscuro)) drop-shadow(0 0.25cqw 0.35cqw rgba(0, 0, 0, 0.45));
-}
-
-.boton-login {
-  position: relative;
-  width: 100%;
-  font-family: "Rajdhani", sans-serif;
-  font-size: 1.1cqw;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #0D1418;
-  padding: 0.65cqw;
-  border: 0;
-  border-radius: 0;
-  background: linear-gradient(180deg, #63B6C6, var(--acento));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  clip-path: polygon(0 0, calc(100% - 0.8cqw) 0, 100% 0.8cqw, 100% 100%, 0 100%);
-  transition: transform 0.1s ease;
-}
-
-/* Velo claro: encima del fondo y debajo del texto (z-index -1 dentro del botón).
-   Su color está calculado para dar el mismo tono que un brillo del 112 %. */
-.boton-login::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: linear-gradient(180deg, rgba(125, 226, 246, 0.5), rgba(105, 205, 226, 0.5));
-  opacity: 0;
-  transition: opacity 0.25s ease;
-}
-
-.boton-login:active { transform: translateY(0.18cqw); }
-
-/* La esquina recortada también recortaría el contorno de foco: al llegar con el teclado
-   se enciende el mismo resalte que con el cursor. */
-.boton-login:focus-visible { outline: none; }
-.zona-boton:has(.boton-login:focus-visible) .halo, .boton-login:focus-visible::after { opacity: 1; }
-
-@media (hover: hover) {
-  .panel:hover::before { opacity: 1; }
-  .panel:hover svg { filter: drop-shadow(0 0 0.3cqw var(--c)) drop-shadow(0 0 0.08cqw var(--c)); transform: scale(1.06); }
-  .panel:hover h3 { text-shadow: 0 0 0.5cqw color-mix(in srgb, var(--c) 55%, transparent); }
-  .zona-boton:has(.boton-login:hover) .halo, .boton-login:hover::after { opacity: 1; }
-}
-
-.pagina-login #mensaje { margin-top: 1.2cqw; font-size: 0.78cqw; border-radius: 0; }
-
-/* Entrada escalonada (la animación "entrada" está más abajo, con las demás) */
+/* Entrada escalonada (la animación "entrada" está al final, con las demás) */
 .formulario { animation: entrada 0.5s ease-out both; }
 .franja, .panel { animation: entrada 0.45s ease-out both; }
 .franja { animation-delay: 0.1s; }
@@ -512,7 +417,7 @@ button:focus-visible {
 /* Pantallas estrechas o en vertical: los paneles serían ilegibles.
    Se ocultan y queda una tarjeta normal sobre la imagen, con medidas fijas. */
 @media (max-width: 900px), (max-aspect-ratio: 5/4) {
-  .franja, .panel, .circuitos { display: none; }
+  .franja, .panel, .escenario .circuitos { display: none; }
   .escenario { inset: 0; width: auto; aspect-ratio: auto; transform: none; background-size: cover; container-type: normal; }
   .marco { inset: 0; width: auto; height: auto; }
   .formulario { width: min(360px, 88vw); background: rgba(22, 30, 37, 0.92); border: 1px solid var(--linea); padding: 28px; clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 0 100%); }
@@ -521,85 +426,104 @@ button:focus-visible {
   .pagina-login .campo { gap: 6px; margin-bottom: 14px; }
   .pagina-login label { font-size: 14px; }
   .pagina-login input { font-size: 16px; padding: 10px 12px; clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
-  .zona-boton { margin-top: 20px; }
-  .halo { inset: 0 0 -4px 0; filter: blur(6px); }
-  .sombra { filter: drop-shadow(0 4px 0 var(--acento-oscuro)) drop-shadow(0 10px 14px rgba(0, 0, 0, 0.45)); }
-  .sombra:has(> .boton-login:active) { filter: drop-shadow(0 1px 0 var(--acento-oscuro)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45)); }
-  .boton-login { font-size: 17px; padding: 11px; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%); }
-  .boton-login:active { transform: translateY(3px); }
+  .pagina-login .zona-boton { margin-top: 20px; }
+  .pagina-login .halo { inset: 0 0 -4px 0; filter: blur(6px); }
+  .pagina-login .sombra { filter: drop-shadow(0 4px 0 var(--acento-oscuro)) drop-shadow(0 10px 14px rgba(0, 0, 0, 0.45)); }
+  .pagina-login .sombra:has(> .boton-relieve:active) { filter: drop-shadow(0 1px 0 var(--acento-oscuro)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.45)); }
+  .pagina-login .boton-relieve { font-size: 17px; padding: 11px; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%); }
+  .pagina-login .boton-relieve:active { transform: translateY(3px); }
   .pagina-login #mensaje { margin-top: 16px; font-size: 14px; }
 }
 
-/* ---------- Página de la aplicación ---------- */
+/* ============================================================
+   Páginas de la aplicación (activos; después, fondos y suministros)
+   ============================================================ */
 
-.cabecera {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+/* Fondo de trabajo: la rejilla del login, muy tenue, y una viñeta que oscurece los bordes */
+.pagina-app {
+  min-height: 100vh;
+  background-image: linear-gradient(rgba(120, 140, 150, 0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(120, 140, 150, 0.06) 1px, transparent 1px);
+  background-size: 46px 46px;
+}
+
+.pagina-app::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(ellipse at 50% 30%, transparent 40%, rgba(8, 11, 14, 0.55)); }
+
+/* Cabecera: la franja de circuitos del login (recorte superior de la imagen, 2752 x 240).
+   El título y el usuario van en la zona central, que está despejada. Por abajo se funde con la página. */
+.cabecera { position: relative; }
+.franja-circuitos { position: relative; width: 100%; aspect-ratio: 2752 / 240; background: url("img/cabecera-activos.webp") center / 100% 100% no-repeat; }
+.franja-circuitos::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, transparent 55%, var(--fondo)); }
+
+.cabecera-contenido {
+  position: absolute;
+  left: 28.5%;
+  right: 28.5%;
+  top: 26%;
+  bottom: 10%;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 14px clamp(16px, 4vw, 40px);
-  background: var(--fondo);
-  border-bottom: 1px solid var(--linea);
+  gap: 20px;
 }
 
-.cabecera h1 { font-size: 1.4rem; }
-
-.usuario {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.95rem;
-}
-
+.cabecera h1 { font-size: clamp(26px, 2.4vw, 38px); }
+.usuario { display: flex; align-items: center; gap: 12px; }
 .usuario-nombre { font-weight: 600; }
 
-.contenido {
-  max-width: 920px;
-  margin: 0 auto;
-  padding: 32px clamp(16px, 4vw, 40px);
+/* Zona de trabajo */
+.trabajo {
+  position: relative;
+  z-index: 1;
+  max-width: 1240px;
+  margin: -10px auto 0;
+  padding: 0 28px 48px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 22px;
 }
 
-.tarjeta {
-  background: var(--superficie);
-  border: 1px solid var(--linea);
-  border-radius: var(--radio);
-  padding: 24px;
-}
+/* Bloque con las esquinas de los paneles del login (superior izquierda pequeña, inferior derecha grande).
+   El borde son dos capas recortadas con la misma forma: la de fuera hace de línea y la de dentro, de relleno. */
+.bloque { position: relative; isolation: isolate; padding: 22px 24px; --c1: 10px; --c2: 22px; }
+.bloque::before, .bloque::after { content: ""; position: absolute; z-index: -1; clip-path: polygon(var(--c1) 0, 100% 0, 100% calc(100% - var(--c2)), calc(100% - var(--c2)) 100%, 0 100%, 0 var(--c1)); }
+.bloque::before { inset: 0; background: var(--linea-fuerte); opacity: 0.55; }
+.bloque::after { inset: 1px; background: var(--panel); }
+.bloque h2 { font-size: 24px; margin: 4px 0 8px; }
+.bloque > p { margin: 0 0 14px; }
 
-.tarjeta h2 { font-size: 1.25rem; margin: 0.25rem 0 0.5rem; }
-
-.texto-suave { color: var(--tinta-suave); margin: 0 0 1rem; }
-
-.permisos {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 10px 16px;
-  align-items: center;
-  margin: 0;
-}
-
-.permisos dt { font-size: 0.875rem; font-weight: 600; color: var(--tinta-suave); }
+/* Permisos del usuario: "Lees" y "Escribes" con sus etiquetas de sección */
+.permisos { display: grid; grid-template-columns: auto auto; justify-content: start; gap: 8px 12px; align-items: center; margin: 0; font-size: 13px; }
+.permisos dt { font-weight: 600; color: var(--tinta-suave); }
 .permisos dd { margin: 0; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.permisos .texto-suave { margin: 0; }
 
-/* ---------- Animaciones ---------- */
+.tarjeta-sesion, .sin-acceso { max-width: 620px; }
+
+@media (max-width: 900px) {
+  .franja-circuitos { aspect-ratio: auto; height: 96px; background-size: cover; background-position: center top; }
+  .cabecera .circuitos { display: none; }
+  .cabecera-contenido { left: 20px; right: 20px; top: 14px; bottom: 14px; }
+  .trabajo { margin-top: 0; padding: 0 16px 32px; }
+}
+
+@media (max-width: 560px) {
+  .usuario-nombre { display: none; }
+}
+
+/* ============================================================
+   Animaciones
+   ============================================================ */
 
 @keyframes entrada {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
 
-.aparece { animation: entrada 0.35s ease-out both; }
-.aparece-2 { animation: entrada 0.35s ease-out 0.08s both; }
+.aparece { animation: entrada 0.45s ease-out both; }
+.aparece-2 { animation: entrada 0.45s ease-out 0.08s both; }
+.aparece-3 { animation: entrada 0.45s ease-out 0.16s both; }
 
-/* Si el sistema pide reducir el movimiento, se quitan animaciones y transiciones. */
+/* Si el sistema pide reducir el movimiento, se acortan animaciones y transiciones. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -607,12 +531,8 @@ button:focus-visible {
     transition-duration: 0.01ms !important;
   }
 
-  /* Aquí las animaciones no se quitan, se acortan: los circuitos, que se repiten sin fin, parpadearían.
-     Se ocultan, y el icono de las tarjetas no crece. */
+  /* Las animaciones se acortan, no se quitan: los circuitos, que se repiten sin fin, parpadearían.
+     Se ocultan, y el icono de las tarjetas del login no crece. */
   .circuitos { display: none; }
   .panel:hover svg { transform: none; }
-}
-
-@media (max-width: 520px) {
-  .usuario-nombre { display: none; }
 }
