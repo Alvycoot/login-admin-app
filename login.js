@@ -6,6 +6,14 @@ const campoEmail = document.getElementById("email");
 const campoPassword = document.getElementById("password");
 const mensaje = document.getElementById("mensaje");
 
+// Si ya hay una sesión abierta, no tiene sentido volver a pedir la contraseña.
+async function comprobarSesion() {
+    const { data } = await clienteSupabase.auth.getSession();
+    if (data.session) {
+        window.location.replace("activos.html");
+    }
+}
+
 formulario.addEventListener("submit", async function (evento){
     evento.preventDefault();
     const email = campoEmail.value;
@@ -22,20 +30,8 @@ formulario.addEventListener("submit", async function (evento){
         mensaje.className = "mensaje-error";
     } else {
         console.log("Sesión iniciada como:", data.user.email);
-
-        const { data: perfiles, error: errorPerfil } = await clienteSupabase
-            .from("perfiles")
-            .select("*")
-            .eq("id", data.user.id);
-
-        console.log("Perfiles visibles:", perfiles);
-
-        if (errorPerfil || perfiles.length === 0) {
-            mensaje.textContent = "Sesión iniciada, pero no se encontró tu perfil.";
-            mensaje.className = "mensaje-error";
-        } else {
-            mensaje.textContent = "Bienvenido, " + perfiles[0].nombre;
-            mensaje.className = "mensaje-exito";
-        }
+        window.location.replace("activos.html");
     }
 });
+
+comprobarSesion();

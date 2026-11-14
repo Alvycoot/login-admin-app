@@ -1,0 +1,38 @@
+<!--
+  Lado derecho del login, versión B (alternativa). No se carga en ninguna página.
+
+  En login.html se usa la versión A: Emplazamiento · Registro de actividad · Áreas y departamentos.
+  Esta B cuenta la parte técnica: Registro de actividad · Permisos por sección · Ventanillas.
+
+  Para cambiarla: en login.html, sustituir los tres bloques <div class="panel der ..."> por estos tres.
+  Usan las mismas clases, así que no hace falta tocar estilos-formal.css.
+-->
+
+<div class="panel der fila-1 s-activos">
+  <svg viewBox="0 0 48 48" class="c-activos" aria-hidden="true">
+    <!-- Hoja con la esquina doblada y renglones, y un reloj delante -->
+    <path d="M8 5h19l6 6v30H8z"/><path d="M27 5v6h6"/>
+    <path d="M13 15h10M13 20h15M13 25h15M13 30h7"/>
+    <circle cx="34" cy="34" r="9" fill="#161E25"/><path d="M34 28.5V34l3.8 2.4"/>
+    <path d="M34 26.2v.9M41.8 34h-.9M34 41.8v-.9M26.2 34h.9"/>
+  </svg>
+  <div class="texto"><h3 class="c-activos">Registro de actividad</h3><p>Cada consulta, búsqueda y cambio queda apuntado: quién, qué y cuándo.</p></div>
+</div>
+<div class="panel der fila-2 s-fondos">
+  <svg viewBox="0 0 48 48" class="c-fondos" aria-hidden="true">
+    <!-- Escudo con doble contorno y marca de visto -->
+    <path d="M24 5l15 6v11c0 9-6 16.5-15 21-9-4.5-15-12-15-21V11z"/>
+    <path d="M24 9.5l11 4.4v8.3c0 6.8-4.3 12.5-11 16.2-6.7-3.7-11-9.4-11-16.2v-8.3z" stroke-opacity=".5"/>
+    <path d="M18 24l4.4 4.4 8-8"/>
+  </svg>
+  <div class="texto"><h3 class="c-fondos">Permisos por sección</h3><p>Cada usuario ve y edita solo las secciones que le corresponden según su rol.</p></div>
+</div>
+<div class="panel der fila-3 s-suministros">
+  <svg viewBox="0 0 48 48" class="c-suministros" aria-hidden="true">
+    <!-- Fachada con rótulo y una ventanilla en arco atravesada por una flecha -->
+    <path d="M5 42h38"/><path d="M8 42V6h32v36"/><path d="M8 15h32"/><path d="M14 10.5h20" stroke-opacity=".5"/>
+    <path d="M16 42V31a8 8 0 0 1 16 0v11"/><path d="M16 35h16" stroke-opacity=".5"/>
+    <path d="M20 31.5h8M25.4 28.9 28 31.5l-2.6 2.6"/>
+  </svg>
+  <div class="texto"><h3 class="c-suministros">Ventanillas</h3><p>Nadie toca las tablas: todo pasa por funciones que comprueban permisos y lo registran.</p></div>
+</div>

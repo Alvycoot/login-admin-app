@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Activos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;600;700&display=swap">
+  <link rel="stylesheet" href="estilos-formal.css">
+</head>
+<body>
+  <!-- Oculto hasta comprobar la sesión: así nadie ve la página ni un instante sin haber entrado. -->
+  <header class="cabecera aparece" id="cabecera" hidden>
+    <div>
+      <p class="eyebrow">Gestión de activos</p>
+      <h1>Activos</h1>
+    </div>
+    <div class="usuario">
+      <span class="usuario-nombre" id="nombre-usuario"></span>
+      <span class="pildora" id="rol-usuario"></span>
+      <button type="button" class="boton-secundario" id="boton-salir">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <main class="contenido" id="contenido" hidden>
+    <section class="tarjeta aparece-2">
+      <p class="eyebrow">Paso 1</p>
+      <h2>Tu sesión</h2>
+      <p class="texto-suave">El buscador de activos llegará en el paso 2. De momento, esto es lo que la base de datos dice que puedes hacer:</p>
+      <dl class="permisos">
+        <dt>Puedes leer</dt>
+        <dd id="secciones-lectura"></dd>
+        <dt>Puedes escribir</dt>
+        <dd id="secciones-escritura"></dd>
+      </dl>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="activos.js"></script>
+</body>
+</html>

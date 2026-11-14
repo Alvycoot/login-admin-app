@@ -1,25 +1,148 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Iniciar sesión</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;600;700&family=Rajdhani:wght@600;700&family=Saira:wght@400;600;700&display=swap">
   <link rel="stylesheet" href="estilos-formal.css">
 </head>
-<body>
-  <div class="tarjeta-login">
-    <h1>Iniciar sesión</h1>
+<body class="pagina-login">
+  <div class="escenario">
+    <!-- Corriente por los circuitos de arriba: mismas coordenadas que la imagen (2752 x 1536) -->
+    <svg class="circuitos" viewBox="0 0 2752 1536" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <mask id="mascara-pistas" maskUnits="userSpaceOnUse" x="0" y="0" width="2752" height="1536">
+          <image href="img/circuitos-mascara.png" x="0" y="0" width="2752" height="1536"/>
+        </mask>
+        <!-- Pistas del lado izquierdo; el haz va del marco hacia los nodos -->
+        <g id="pistas-izq">
+          <path class="pista" d="M34 250V69L76 27H580" style="--fin: 1644; --dur: 11.4s; --d: 3.5s"/>
+          <path class="pista" d="M55 250V81L86 50H521" style="--fin: 1398; --dur: 9.9s; --d: 0s"/>
+          <path class="pista" d="M428 70L462 104H607L623 88H753" style="--fin: 1096; --dur: 7.8s; --d: 1.2s"/>
+          <path class="pista" d="M387 70L440 124H633" style="--fin: 1169; --dur: 8.3s; --d: 4.6s"/>
+          <path class="pista" d="M354 70L426 144H703" style="--fin: 980; --dur: 7s; --d: 2.4s"/>
+          <path class="pista" d="M296 50L409 165H680" style="--fin: 1182; --dur: 8.3s; --d: 5.8s"/>
+          <path class="pista" d="M284 124H340L413 198H753" style="--fin: 1400; --dur: 9.8s; --d: .6s"/>
+          <path class="pista" d="M285 154H369L413 198H753" style="--fin: 1536; --dur: 10.7s; --d: 6.9s"/>
+        </g>
+      </defs>
+      <g mask="url(#mascara-pistas)">
+        <use href="#pistas-izq"/>
+        <!-- Lado derecho: el mismo dibujo reflejado, con otro retraso para que no vayan a la par -->
+        <use href="#pistas-izq" transform="translate(2752 0) scale(-1 1)" style="--extra: 2.9s"/>
+        <!-- La línea larga que cruza la parte de arriba de lado a lado -->
+        <path class="pista" d="M316 70H565L606 27H2146L2187 70H2437" style="--fin: 2758; --dur: 18.9s; --d: 1.8s"/>
+      </g>
+    </svg>
 
-    <form id="form-login">
-      <label for="email">Correo electrónico</label>
-      <input type="email" id="email" name="email" required>
+    <!-- Franjas superiores -->
+    <div class="franja izq">
+      <span class="eyebrow">Fondos de inversión inmobiliaria</span>
+      <strong>Gestión de activos</strong>
+    </div>
+    <div class="franja der">
+      <span class="eyebrow">Entorno de demostración</span>
+      <strong>Datos ficticios · Actividad registrada</strong>
+    </div>
 
-      <label for="password">Contraseña</label>
-      <input type="password" id="password" name="password" required>
+    <!-- Lado izquierdo: las tres secciones -->
+    <div class="panel izq fila-1 s-activos">
+      <svg viewBox="0 0 48 48" class="c-activos" aria-hidden="true">
+        <!-- Torre central con antena y remate, dos alas laterales y suelo -->
+        <path d="M3 44h42"/><path d="M24 3v4"/><path d="M19 11V7h10v4"/><path d="M15 44V11h18v33"/>
+        <path d="M15 19H7v25M33 19h8v25"/>
+        <rect x="18.5" y="14" width="4.5" height="3.2" rx=".4"/><rect x="25" y="14" width="4.5" height="3.2" rx=".4"/>
+        <rect x="18.5" y="19.5" width="4.5" height="3.2" rx=".4"/><rect x="25" y="19.5" width="4.5" height="3.2" rx=".4"/>
+        <rect x="18.5" y="25" width="4.5" height="3.2" rx=".4"/><rect x="25" y="25" width="4.5" height="3.2" rx=".4"/>
+        <path d="M21 44v-9.5h6V44"/>
+        <path d="M9.5 23.5h3M9.5 27.5h3M9.5 31.5h3M9.5 35.5h3M9.5 39.5h3M35.5 23.5h3M35.5 27.5h3M35.5 31.5h3M35.5 35.5h3M35.5 39.5h3"/>
+      </svg>
+      <div class="texto"><h3 class="c-activos">Activos</h3><p>Viviendas y edificios con su estado: compra, obra, venta o vendido.</p></div>
+    </div>
+    <div class="panel izq fila-2 s-fondos">
+      <svg viewBox="0 0 48 48" class="c-fondos" aria-hidden="true">
+        <!-- Rueda dentada de 8 dientes entre dos flechas que giran -->
+        <path d="M31.15 23.51 L33.42 23.75 L33.42 26.25 L31.15 26.49 L30.11 29.00 L31.54 30.78 L29.78 32.54 L28.00 31.11 L25.49 32.15 L25.25 34.42 L22.75 34.42 L22.51 32.15 L20.00 31.11 L18.22 32.54 L16.46 30.78 L17.89 29.00 L16.85 26.49 L14.58 26.25 L14.58 23.75 L16.85 23.51 L17.89 21.00 L16.46 19.22 L18.22 17.46 L20.00 18.89 L22.51 17.85 L22.75 15.58 L25.25 15.58 L25.49 17.85 L28.00 18.89 L29.78 17.46 L31.54 19.22 L30.11 21.00 Z"/>
+        <circle cx="24" cy="25" r="3.4"/>
+        <path d="M9 23C9 14.5 15.5 9 24 9h17"/><path d="M36.5 4.5 41 9l-4.5 4.5"/>
+        <path d="M39 27c0 8.5-6.5 14-15 14H7"/><path d="M11.5 36.5 7 41l4.5 4.5"/>
+      </svg>
+      <div class="texto"><h3 class="c-fondos">Fondos</h3><p>Los fondos propietarios de cada activo, con sus datos fiscales y bancarios.</p></div>
+    </div>
+    <div class="panel izq fila-3 s-suministros">
+      <svg viewBox="0 0 48 48" class="c-suministros" aria-hidden="true">
+        <!-- Enchufe con sus dos clavijas y el cable, y una llama con su lengua interior -->
+        <rect x="10.5" y="3" width="3" height="8.5" rx="1.5"/><rect x="18" y="3" width="3" height="8.5" rx="1.5"/>
+        <rect x="7" y="11.5" width="17.5" height="3" rx="1.5"/>
+        <path d="M9 14.5V18a6.75 6.75 0 0 0 13.5 0v-3.5"/><path d="M15.75 24.75V27.5"/>
+        <path d="M15.75 27.5c0 7 2.5 11 6.5 15"/>
+        <path d="M35 44c-5.5 0-8.5-4-8.5-8.5 0-5 3.5-7.5 5-11 1 3 2 4.5 3.5 5.5 0-4 2-7 5-9 0 4 3.5 8 3.5 14.5 0 4.5-3 8.5-8.5 8.5z"/>
+        <path d="M35 44c-2.5 0-4-2-4-4.5 0-2.5 2-4 3-6 1 2 4.5 3.5 4.5 6.5 0 2.3-1.5 4-3.5 4z"/>
+      </svg>
+      <div class="texto"><h3 class="c-suministros">Suministros</h3><p>La luz y el gas de cada activo: CUPS, potencia contratada e instalación.</p></div>
+    </div>
 
-      <button type="submit">Entrar</button>
-    </form>
-    <p id="mensaje"></p>
+    <!-- Lado derecho (versión A). La alternativa B está guardada en docs/alternativas/login-paneles-version-b.html -->
+    <div class="panel der fila-1 s-suministros">
+      <svg viewBox="0 0 48 48" class="c-suministros" aria-hidden="true">
+        <!-- Mapa plegado en tres cuerpos, con un camino punteado y la chincheta -->
+        <path d="M5 11l11-4 16 4 11-4v30l-11 4-16-4-11 4z"/><path d="M16 7v30M32 11v30"/>
+        <path d="M8 33c3-3 5-1 8-4s6-2 8 0" stroke-dasharray="1.5 2.5"/><path d="M34 34c2-2 4-2 6-4" stroke-dasharray="1.5 2.5"/>
+        <path d="M24 32s-7-6.5-7-11.5a7 7 0 0 1 14 0C31 25.5 24 32 24 32z" fill="#161E25"/><circle cx="24" cy="20.5" r="2.5"/>
+      </svg>
+      <div class="texto"><h3 class="c-suministros">Emplazamiento</h3><p>Dirección, municipio y referencia catastral de cada activo.</p></div>
+    </div>
+    <div class="panel der fila-2 s-activos">
+      <svg viewBox="0 0 48 48" class="c-activos" aria-hidden="true">
+        <!-- Hoja con la esquina doblada y renglones, y un reloj delante -->
+        <path d="M8 5h19l6 6v30H8z"/><path d="M27 5v6h6"/>
+        <path d="M13 15h10M13 20h15M13 25h15M13 30h7"/>
+        <circle cx="34" cy="34" r="9" fill="#161E25"/><path d="M34 28.5V34l3.8 2.4"/>
+        <path d="M34 26.2v.9M41.8 34h-.9M34 41.8v-.9M26.2 34h.9"/>
+      </svg>
+      <div class="texto"><h3 class="c-activos">Registro de actividad</h3><p>Cada consulta, búsqueda y cambio queda apuntado: quién, qué y cuándo.</p></div>
+    </div>
+    <div class="panel der fila-3 s-fondos">
+      <svg viewBox="0 0 48 48" aria-hidden="true" style="color: var(--tinta-suave)">
+        <!-- Abanico de tres muestras, una por área, girando sobre el agujero de abajo a la izquierda -->
+        <g transform="rotate(58 13 38)"><rect x="7.5" y="5" width="11" height="38" rx="2.5" fill="#161E25" stroke="var(--sec-suministros)"/><path d="M8.5 13h9M8.5 21h9" stroke="var(--sec-suministros)" stroke-opacity=".5"/><rect x="9" y="6.5" width="8" height="4" rx="1" fill="var(--sec-suministros)" stroke="none"/></g>
+        <g transform="rotate(29 13 38)"><rect x="7.5" y="5" width="11" height="38" rx="2.5" fill="#161E25" stroke="var(--sec-fondos)"/><path d="M8.5 13h9M8.5 21h9" stroke="var(--sec-fondos)" stroke-opacity=".5"/><rect x="9" y="6.5" width="8" height="4" rx="1" fill="var(--sec-fondos)" stroke="none"/></g>
+        <g><rect x="7.5" y="5" width="11" height="38" rx="2.5" fill="#161E25" stroke="var(--sec-activos)"/><path d="M8.5 13h9M8.5 21h9M8.5 29h9" stroke="var(--sec-activos)" stroke-opacity=".5"/><rect x="9" y="6.5" width="8" height="4" rx="1" fill="var(--sec-activos)" stroke="none"/></g>
+        <circle cx="13" cy="37.5" r="2.2" stroke="var(--sec-activos)"/>
+      </svg>
+      <div class="texto"><h3 style="color: var(--sec-fondos)">Áreas y departamentos</h3><p>Cada área trabaja con sus secciones y sus permisos. Preparado para editores por departamento.</p></div>
+    </div>
+
+    <!-- El formulario, dentro del marco central de la imagen -->
+    <div class="marco">
+      <div class="formulario">
+        <p class="eyebrow">Acceso privado</p>
+        <h1>Iniciar sesión</h1>
+
+        <form id="form-login">
+          <div class="campo">
+            <label for="email">Correo electrónico</label>
+            <input type="email" id="email" name="email" required>
+          </div>
+
+          <div class="campo">
+            <label for="password">Contraseña</label>
+            <input type="password" id="password" name="password" required>
+          </div>
+
+          <div class="zona-boton">
+            <span class="halo" aria-hidden="true"></span>
+            <div class="sombra"><button type="submit" class="boton-login">Entrar</button></div>
+          </div>
+        </form>
+        <p id="mensaje"></p>
+      </div>
+    </div>
   </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.min.js"></script>
   <script src="config.js"></script>
   <script src="login.js"></script>

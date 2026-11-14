@@ -2481,6 +2481,125 @@ Precisamente para eso: con RLS activado y sin políticas, **la respuesta por def
 
 Nada que no pudiera hacer desde la página. Las funciones se pueden llamar desde la consola (así se han hecho todas las pruebas), y por eso cada una comprueba el permiso por dentro, en lugar de confiar en que la página solo enseñe botones a quien puede usarlos.
 
+## 25. Las pantallas — paso 1: la sesión, y el login nuevo
+
+Con la base de datos cerrada empiezan las pantallas del usuario. Se decidió hacer primero solo las de **activos** (fondos y suministros llegarán cuando la versión mínima esté presentable), en cuatro pasos: la sesión, el buscador, la ficha y los formularios de crear y editar. Esta sección cubre el paso 1 y el rediseño del login.
+
+**El principio de todas las pantallas: la página esconde por comodidad; la seguridad está en la base de datos.** Si la página no enseña el botón "Crear" a un lector, es para no confundirlo, no para protegerse: aunque lo llamara desde la consola, `crear_activo` le diría que no (sección 24.6).
+
+### 25.1. La `031`: `mi_perfil()`
+
+Para decidir qué enseñar, la página necesita saber quién es el usuario, qué rol tiene y qué secciones puede leer y escribir. Desde la sección 22 no puede leer tablas directamente, así que lo pregunta por una ventanilla más:
+
+```sql
+CREATE FUNCTION public.mi_perfil()
+RETURNS TABLE (nombre text, rol text, secciones_lectura text[], secciones_escritura text[])
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT
+    p.nombre,
+    p.rol,
+    ARRAY(
+      SELECT s.seccion
+      FROM unnest(ARRAY['ACTIVOS', 'FONDOS', 'SUMINISTROS']) AS s(seccion)
+      WHERE privado.tiene_seccion(s.seccion)
+    ),
+    ARRAY(
+      SELECT s.seccion
+      FROM unnest(ARRAY['ACTIVOS', 'FONDOS', 'SUMINISTROS']) AS s(seccion)
+      WHERE privado.puede_escribir(s.seccion)
+    )
+  FROM public.perfiles p
+  WHERE p.id = auth.uid()
+    AND p.activo;
+$$;
+```
+
+1. **`LANGUAGE sql` y no `plpgsql`.** No hay lógica (ni `IF` ni variables): es una sola consulta.
+2. **`STABLE`.** Le dice a Postgres que la función no modifica nada y que, dentro de la misma consulta, devuelve siempre lo mismo.
+3. **Reutiliza las reglas, no las copia.** Las listas salen de pasar las tres secciones por `privado.tiene_seccion` y `privado.puede_escribir`, las mismas funciones que usan las ventanillas. Si mañana cambian las reglas, la página se entera sola. `unnest` convierte la lista `['ACTIVOS', 'FONDOS', 'SUMINISTROS']` en tres filas y `ARRAY(...)` vuelve a juntar las que pasan el filtro.
+4. **Un perfil desactivado no recibe nada** (`AND p.activo`), y la página lo trata como si no tuviera perfil.
+5. **No se apunta en el registro.** Es una consulta del usuario sobre sí mismo, no sobre los datos de la empresa.
+
+### 25.2. `activos.html` y el guardián
+
+`activos.html` tiene la cabecera y el contenido **ocultos** (`hidden`) hasta comprobar la sesión: así nadie ve la página ni un instante sin haber entrado. `activos.js` hace de guardián:
+
+```js
+async function iniciar() {
+    const { data: datosSesion } = await clienteSupabase.auth.getSession();
+    if (!datosSesion.session) {
+        window.location.replace("login.html");
+        return;
+    }
+
+    const { data: perfiles, error } = await clienteSupabase.rpc("mi_perfil");
+    if (error || !perfiles || perfiles.length === 0) {
+        await clienteSupabase.auth.signOut();
+        window.location.replace("login.html");
+        return;
+    }
+
+    mostrarPerfil(perfiles[0]);
+}
+```
+
+- **Sin sesión**, de vuelta al login. **Con sesión pero sin perfil activo**, se cierra la sesión y también de vuelta: si solo se le redirigiera, el login vería la sesión abierta y lo mandaría otra vez a activos, en bucle.
+- **`location.replace` y no `location.href`.** `replace` sustituye la página en el historial: el botón "Atrás" no devuelve a una página a la que no se puede volver.
+- **La cabecera** enseña el nombre y una píldora con el rol. La tarjeta "Tu sesión" enseña las secciones que puede leer y escribir, con una píldora del color de cada sección, o "Ninguna".
+- **Todo se escribe con `textContent`, nunca con `innerHTML`.** `textContent` trata lo que recibe como texto: si alguien se llamara `<script>…`, se vería tal cual en lugar de ejecutarse.
+- **Cerrar sesión** llama a `signOut()` y vuelve al login.
+
+`login.js` cambia en dos cosas: al entrar, redirige a `activos.html` en lugar de saludar en la misma página (y ya no lee `perfiles`), y si al abrir el login ya hay una sesión, redirige directamente.
+
+### 25.3. Cómo se probó el paso 1
+
+| # | Prueba | Resultado |
+|---|---|---|
+| 1 | Entrar como editor | Cabecera "EDITOR"; lee y escribe Activos |
+| 2 | Entrar como lector | Cabecera "LECTOR"; lee Fondos y Suministros; escribe "Ninguna" |
+| 3 | Entrar como admin | Cabecera "ADMIN"; lee y escribe las tres secciones |
+| 4 | Contraseña mala | "Correo o contraseña incorrectos." en rojo, sin salir del login |
+| 5 | Abrir `activos.html` sin sesión | Vuelve al login |
+
+### 25.4. El login nuevo
+
+El login pasa de una tarjeta sencilla a una portada con identidad propia. Es lo primero que se ve de la aplicación, y se trabajó en una maqueta aparte (fuera del repositorio) antes de pasarlo al proyecto.
+
+- **El fondo.** Una ilustración generada con Gemini (NotebookLM) a partir de un brief propio: un panel digital con la ciudad sobre pistas de circuito, un marco central y seis paneles laterales. Se le quitaron con Python (Pillow) los iconos que traía, para redibujarlos, y la marca de agua, tapada con la esquina opuesta reflejada, porque la imagen es simétrica. Se convirtió a WebP: **de 4 MB a 74 KB** sin pérdida visible.
+- **El "escenario".** La imagen tiene proporciones fijas (2752 × 1536), así que todo va dentro de una caja con esas mismas proporciones que cubre la ventana: `width: max(100vw, 100vh * 2752 / 1536)`. Dentro, todo se coloca en porcentajes y los textos se miden en `cqw` (1 % del ancho de la caja, con `container-type: inline-size`). Así, al cambiar el tamaño de la ventana, todo crece y encoge a la vez y nunca se descoloca respecto al dibujo. Por debajo de 900 px de ancho o en vertical, los paneles serían ilegibles: se ocultan y queda una tarjeta normal.
+- **Los paneles son tarjetas informativas, no botones.** Antes de iniciar sesión no hay adónde llevar. Izquierda: las tres secciones; derecha: emplazamiento, registro de actividad y áreas. Hay una versión B del lado derecho, más técnica (registro, permisos por sección y ventanillas), guardada en `docs/alternativas/`.
+- **Los iconos** se redibujaron en SVG copiando el detalle de los originales (trazo fino, brillo de neón con `drop-shadow`). Al ser vectoriales se ven nítidos a cualquier tamaño y cambian de color con la sección.
+- **La corriente por los circuitos.** Sobre la imagen hay un SVG con las pistas de arriba trazadas encima de las del dibujo. Cada línea tiene `stroke-dasharray: 70 5000`, un trazo de 70 unidades y un hueco enorme, y al animar `stroke-dashoffset` el trazo recorre la pista como un haz de luz. Para que la luz no se salga, se recorta con una **máscara** hecha con los píxeles reales de las pistas. El lado derecho es el izquierdo reflejado (`<use>` con `scale(-1 1)`).
+- **Los resaltes** (tarjetas y botón) solo animan **opacidad**: un velo del color de la sección en las tarjetas, y un halo y un velo claro en el botón.
+- **Siempre en oscuro**, aunque el sistema esté en claro, porque la imagen es oscura: el login tiene su propia paleta dentro de `.pagina-login`.
+- **Accesibilidad.** Con el teclado, el botón enciende el mismo resalte que con el cursor (la esquina recortada cortaría el contorno de foco). Si el sistema pide reducir el movimiento, se ocultan los circuitos.
+
+### 25.5. Lo que se aprendió por el camino
+
+1. **Un degradado de fondo no se anima.** El navegador lo cambia de golpe. Para aclarar un botón poco a poco hay que usar otra cosa.
+2. **Para que un resalte arranque al instante, se anima `opacity`, no `filter`.** La opacidad la mueve la tarjeta gráfica desde el primer fotograma; los filtros (`drop-shadow`, `brightness`) se recalculan en cada fotograma y arrancan un pelín tarde. El botón tuvo un retardo visible hasta que se rehízo con capas de opacidad, como las tarjetas.
+3. **Las listas de sombras se emparejan por posición.** Si en reposo hay dos `drop-shadow` y con el cursor tres, el halo nuevo "nace" de la sombra que ocupaba su sitio, y pasa por negro antes de ser azul.
+4. **A las copias de `<use>` no les llegan los selectores con ancestro** (`.circuitos path`). Salían rellenas de negro. Solución: una clase en cada pista.
+5. **En `@keyframes`, `calc(var(--fin) * -1)` sin unidad se descarta en silencio.** Tiene que ser `* -1px`.
+
+### 25.6. Preguntas previsibles
+
+**"Si el guardián es JavaScript, ¿no se lo puede saltar cualquiera?"**
+
+Sí, y no pasa nada. Saltárselo solo permite ver la página vacía: cada dato llega por una ventanilla que comprueba la sesión y el permiso en la base de datos. El guardián sirve para que la experiencia sea limpia, no para proteger.
+
+**"¿La imagen del login la has hecho tú?"**
+
+La generé con Gemini a partir de un brief mío y la elegí entre varias versiones. Lo que hay encima es trabajo propio: los iconos redibujados, los textos, la animación de los circuitos y el encaje con el formulario.
+
+**"¿Por qué no usar un framework (React, Tailwind…)?"**
+
+Para aprender lo que hay debajo. Con HTML, CSS y JavaScript sin capas intermedias, cada decisión de esta sección se ve y se puede explicar. Pasar a un framework más adelante sería traducir, no reaprender.
+
 ---
 
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
