@@ -2665,6 +2665,84 @@ Como siempre, la página solo decide qué enseñar: aunque el lector se saltara 
 
 La maqueta dejó decididos el buscador, la lista y la ficha, que se despliega de izquierda a derecha en tres tiempos (el panel, el nombre y los datos), y una decisión de datos: **la ficha mostrará el nombre del fondo propietario**, no solo su número. El editor no tiene la sección Fondos, así que la `032` ampliará `consultar_activo` para entregar el nombre (solo el nombre: el CIF y el IBAN siguen protegidos).
 
+## 27. Las pantallas — paso 2: el buscador
+
+La barra de `activos.html` tiene ya el buscador conectado a `buscar_activos`, junto a los permisos del usuario ("Lees" y "Escribes", que antes estaban en la tarjeta "Tu sesión"). Debajo, la lista de resultados: código, dirección y municipio, lo mismo que devuelve la función (sección 21).
+
+Las filas todavía no se pueden pulsar y no hay botón "Nuevo activo": llegarán con la ficha (paso 3) y los formularios (paso 4). La página no promete nada que todavía no hace.
+
+### 27.1. El problema: buscar mientras se escribe llena el registro
+
+Lo cómodo es que la lista se actualice mientras se escribe. Pero cada llamada a `buscar_activos` queda apuntada como `BUSQUEDA` en el registro de actividad, y buscar letra a letra dejaría un rastro de búsquedas a medias: "c", "ca", "cal"…
+
+La primera idea fue que se apuntara solo la palabra final. **Se descartó**, porque para eso la página tendría que decirle a la base de datos "esta no la apuntes", y la página no es de fiar: cualquiera podría llamar a la función desde la consola pidiendo que no se apunte nada y buscar sin dejar rastro. **Un registro que el usuario puede apagar no sirve como registro.**
+
+### 27.2. La solución: la base de datos apunta todo, la página no manda búsquedas a medias
+
+```js
+const MIN_LETRAS = 3;
+const ESPERA_MS = 600;
+
+campoBusqueda.addEventListener("input", function () {
+    clearTimeout(temporizador);
+    const texto = campoBusqueda.value.trim();
+    if (texto === "") {
+        ...
+    } else if (texto.length >= MIN_LETRAS) {
+        temporizador = setTimeout(function () { buscar(texto); }, ESPERA_MS);
+    }
+});
+```
+
+1. **La búsqueda automática espera a que se deje de escribir.** Cada letra cancela el temporizador anterior (`clearTimeout`) y pone uno nuevo. Solo cuando pasan 600 ms sin teclear se manda la búsqueda. Esta técnica se llama *debounce*.
+2. **Con menos de 3 letras no se busca sola**: con 1 o 2 letras casi todo coincide.
+3. **Intro busca al momento con cualquier texto**, aunque tenga una sola letra: es una decisión clara del usuario, no un tecleo a medias. Así se pueden buscar municipios de dos letras, como Ea (Bizkaia) o Ur (Girona).
+4. **La misma búsqueda no se repite seguida.** Si la búsqueda automática ya buscó "calle" y después se pulsa Intro, no se manda otra vez: se apuntaría dos veces.
+5. **Solo se pinta la respuesta de la última búsqueda.** Cada búsqueda lleva un número; si llega tarde la respuesta de una anterior, se descarta.
+
+**Por qué 3 y 600.** No son valores "óptimos", sino puntos de partida razonables. Quien escribe con soltura deja 200-300 ms entre tecla y tecla, y alguien más pausado, 400-500 ms: la espera tiene que ser mayor para no cortar la palabra. Por otro lado, hasta 1 segundo una espera no rompe el hilo de lo que se está haciendo (criterio de Jakob Nielsen). Los buscadores suelen usar 300-500 ms; aquí se eligió algo más porque cada búsqueda queda registrada. Están en dos constantes al principio de `activos.js`, para ajustarlas probando.
+
+**La selección final también queda apuntada:** cuando el usuario abra la ficha de un activo (paso 3), `consultar_activo` apuntará una `CONSULTA` con el activo concreto. El registro contará qué se buscó y qué se abrió.
+
+### 27.3. La entrada de los resultados
+
+En cada búsqueda, el panel baja desde arriba (0,8 s, con la misma curva que la ficha), después aparece el recuento y las filas entran una a una, cada una 0,1 s después de la anterior. Cada fila lleva su turno en una variable CSS (`--i`) y el retraso se calcula en la hoja de estilos:
+
+```css
+.despliega-abajo tbody tr { animation-delay: calc(0.35s + min(var(--i, 0), 10) * 0.1s); }
+```
+
+`min(var(--i), 10)` pone un tope: a partir de la décima fila, las demás entran a la vez. Con 50 resultados, sin tope serían 5 segundos de espera.
+
+### 27.4. Cómo se probó
+
+Primero, con una base de datos simulada que apuntaba cada llamada, y un guion que tecleaba solo:
+
+| Tecleo | Llamadas que llegaron |
+|---|---|
+| "c", "ca", "cal", "call", "calle" (150 ms entre letras), y después Intro | `"calle"` (una sola vez) |
+| "e", "ea" y después Intro | `"ea"` |
+| "zzz" | `"zzz"` |
+
+Once pulsaciones, tres búsquedas. Después, con Supabase y consultando el registro como admin:
+
+| id | Acción | Detalle |
+|---|---|---|
+| 132 | `BUSQUEDA` | `{"texto": "calle", "resultados": 6}` |
+| 133 | `BUSQUEDA` | `{"texto": "dubida", "resultados": 0}` |
+
+Ninguna búsqueda a medias.
+
+### 27.5. Preguntas previsibles
+
+**"¿Y si alguien se salta las reglas desde la consola y busca letra a letra?"**
+
+Se apunta todo, letra a letra. Las reglas de la página sirven para que el registro de un uso normal quede limpio, no para controlar nada: lo que se apunta lo decide la base de datos.
+
+**"¿No sería más eficiente traer todos los activos una vez y filtrar en la página?"**
+
+Con pocos datos, sí. Pero la página recibiría todos los activos, también los que el usuario no ha buscado, y las búsquedas no quedarían registradas. Con la ventanilla, cada usuario recibe solo lo que busca y queda constancia.
+
 ---
 
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*

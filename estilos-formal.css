@@ -497,7 +497,37 @@ button { font: inherit; cursor: pointer; }
 .permisos dt { font-weight: 600; color: var(--tinta-suave); }
 .permisos dd { margin: 0; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 
-.tarjeta-sesion, .sin-acceso { max-width: 620px; }
+.sin-acceso { max-width: 620px; }
+.bloque-cabecera { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+
+/* Barra: buscador y permisos del usuario */
+.barra { display: flex; align-items: flex-end; gap: 22px; flex-wrap: wrap; }
+.buscador { flex: 1 1 360px; max-width: 560px; position: relative; }
+.buscador label { display: block; margin-bottom: 5px; }
+.buscador input { padding-left: 40px; }
+.buscador svg { position: absolute; left: 12px; bottom: 12px; width: 18px; height: 18px; fill: none; stroke: var(--tinta-suave); stroke-width: 2; stroke-linecap: round; pointer-events: none; }
+
+/* Resultados */
+.meta { margin: 0; font-size: 13px; color: var(--tinta-suave); }
+.registrada { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--tinta-apagada); white-space: nowrap; }
+.registrada svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--tinta-apagada); padding: 8px 12px; border-bottom: 1px solid var(--linea-fuerte); }
+td { padding: 11px 12px; border-bottom: 1px solid var(--linea-tenue); }
+.codigo { font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 600; color: var(--sec-activos); white-space: nowrap; }
+.vacio { padding: 26px 12px; text-align: center; color: var(--tinta-suave); }
+.vacio.error { color: var(--error); }
+
+/* Al llegar unos resultados, en cada búsqueda: el panel baja desde arriba (0,8 s, como la ficha pero en vertical),
+   después aparece el recuento y por último las filas, una a una, 0,1 s después de la anterior.
+   A partir de la décima, las demás entran con ella: con muchos resultados la espera no crece sin fin.
+   Solo se animan posición y opacidad. */
+@keyframes baja { from { opacity: 0; transform: translateY(-24px); } to { opacity: 1; transform: none; } }
+@keyframes entra-fila { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+.bloque.despliega-abajo { animation: baja 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.despliega-abajo .bloque-cabecera { animation: entra-fila 0.45s ease-out 0.2s both; }
+.despliega-abajo tbody tr { animation: entra-fila 0.45s ease-out both; animation-delay: calc(0.35s + min(var(--i, 0), 10) * 0.1s); }
 
 @media (max-width: 900px) {
   .franja-circuitos { aspect-ratio: auto; height: 96px; background-size: cover; background-position: center top; }

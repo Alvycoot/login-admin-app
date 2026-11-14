@@ -52,17 +52,36 @@
   </header>
 
   <main class="trabajo" id="contenido" hidden>
-    <!-- Lo que ve quien tiene la sección Activos -->
-    <section class="bloque tarjeta-sesion aparece-2" id="tarjeta-sesion">
-      <p class="eyebrow">Paso 1</p>
-      <h2>Tu sesión</h2>
-      <p class="texto-suave">El buscador de activos llegará en el paso 2. De momento, esto es lo que la base de datos dice que puedes hacer:</p>
+    <!-- Lo que ve quien tiene la sección Activos: el buscador (paso 2) y sus resultados -->
+    <section class="barra aparece-2" id="barra">
+      <div class="buscador">
+        <label for="texto-busqueda">Buscar activos</label>
+        <input type="search" id="texto-busqueda" placeholder="Código, dirección o municipio" autocomplete="off">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+      </div>
       <dl class="permisos">
         <dt>Lees</dt>
         <dd id="secciones-lectura"></dd>
         <dt>Escribes</dt>
         <dd id="secciones-escritura"></dd>
       </dl>
+    </section>
+
+    <!-- Resultados de buscar_activos: solo código, dirección y municipio -->
+    <section class="bloque aparece-3" id="resultados">
+      <div class="bloque-cabecera">
+        <div>
+          <p class="eyebrow">Resultados</p>
+          <p class="meta" id="meta-busqueda" aria-live="polite"></p>
+        </div>
+        <span class="registrada" id="aviso-registrada" title="Cada búsqueda queda apuntada en el registro de actividad" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Búsqueda registrada
+        </span>
+      </div>
+      <table>
+        <thead><tr><th>Código</th><th>Dirección</th><th>Municipio</th></tr></thead>
+        <tbody id="filas"></tbody>
+      </table>
     </section>
 
     <!-- Lo que ve quien no tiene la sección Activos -->
