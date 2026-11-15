@@ -46,7 +46,7 @@ function mostrarPerfil(perfil) {
         pintarEstado("Escribe al menos " + MIN_LETRAS + " letras, o pulsa Intro para buscar.", "Busca por código, dirección o municipio.");
     } else {
         document.getElementById("barra").hidden = true;
-        document.getElementById("resultados").hidden = true;
+        document.getElementById("columnas").hidden = true;   // la lista y la ficha, juntas
         document.getElementById("sin-acceso").hidden = false;
         pintarSecciones(document.getElementById("secciones-lector"), perfil.secciones_lectura);
     }
