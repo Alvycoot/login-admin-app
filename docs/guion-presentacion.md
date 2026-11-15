@@ -2811,6 +2811,85 @@ Este paso se construyó en una **rama**, `paso-3-ficha`: una copia paralela del 
 
 Probando, apareció un defecto en el login: el velo del resalte asomaba por fuera de la esquina superior izquierda de las tarjetas. Se midieron las esquinas en la imagen (unos 52 px arriba a la izquierda y 56 px abajo a la derecha, de 2752 px de ancho) y el recorte del velo pasó de 0,9 a 1,9 `cqw` y de 2 a 2,05 `cqw`. **Medir en el dibujo en lugar de ajustar a ojo.**
 
+## 29. Las pantallas — paso 4: editar y crear
+
+Quien puede escribir activos (el editor con la sección Activos y el admin) ve dos botones nuevos: **"+ Nuevo activo"** en la barra y **"Editar"** en el pie de la ficha. El formulario aparece en el sitio de la ficha, con la misma animación, y guarda mediante las ventanillas de las secciones 23 y 24: `modificar_activo` y `crear_activo`.
+
+### 29.1. La `033`: la lista de fondos para el desplegable
+
+El fondo propietario se elige en un desplegable con los nombres de los fondos, pero el editor no tiene la sección Fondos. Hizo falta una ventanilla más:
+
+```sql
+CREATE FUNCTION public.fondos_para_elegir()
+RETURNS TABLE (id bigint, nombre text)
+...
+    IF NOT privado.puede_escribir('ACTIVOS') THEN
+        RAISE EXCEPTION 'No tienes permiso para elegir fondos';
+    END IF;
+
+    RETURN QUERY
+    SELECT f.id, f.nombre
+    FROM public.fondos f
+    ORDER BY f.nombre;
+```
+
+1. **Solo `id` y `nombre`:** lo que necesita el desplegable. El CIF y el IBAN no salen.
+2. **Solo para quien puede escribir activos.** La lista solo sirve para rellenar el formulario: quien no puede guardar un activo no la necesita. Un lector con la sección Activos ve fichas, pero no recibe la lista completa de fondos. Es el principio de dar a cada uno lo mínimo que necesita.
+3. **No se apunta en el registro, a propósito.** Es la primera ventanilla de una tabla de negocio que no deja rastro, y la decisión se tomó con sus pros y contras:
+   - Es una lista auxiliar que se pide cada vez que se abre el formulario. Apuntarla añadiría a cada edición una línea que no dice qué activo se tocó ni qué cambió.
+   - Los nombres de los fondos ya se habían decidido como dato no delicado (sección 28), y `mi_perfil` tampoco se apunta.
+   - Lo importante queda registrado igualmente: la creación o la modificación del activo, con el fondo elegido, la apunta el disparador.
+
+   Para que nadie lo tome por un olvido, el motivo está escrito en un comentario al principio de la migración.
+
+| # | Usuario | Prueba | Resultado |
+|---|---|---|---|
+| 1 | Editor | `fondos_para_elegir()` | 5 fondos por orden alfabético, solo `id` y `nombre` |
+| 2 | Lector | lo mismo | `400`: "No tienes permiso para elegir fondos" |
+| 3 | Admin | lo mismo | La misma lista |
+| 4 | Admin | Leer el registro | Solo los `LOGIN` de las pruebas: la lista no deja rastro |
+
+### 29.2. El formulario
+
+- **Al editar, solo se envían los campos cambiados.** `modificar_activo` entiende "vacío = no cambiar" (sección 23), así que la página compara cada campo con su valor original y manda solo los distintos. Si no ha cambiado nada, avisa sin llamar a la base de datos. Así el registro apunta solo lo que se tocó.
+- **Las mismas comprobaciones que las ventanillas**, antes de enviar: código y dirección obligatorios, y fondo elegido. Los mensajes salen en castellano, y la base de datos vuelve a comprobarlo todo al final.
+- **Errores sin traducir:** un código o una referencia catastral repetidos llegan como el error `23505` de Postgres, en inglés. La página lo reconoce y lo traduce ("Ya existe un activo con ese código"). Lo escrito se conserva para corregirlo.
+- **Guardar se desactiva mientras se envía:** un doble clic no crea el mismo activo dos veces.
+- **Después de guardar no se vuelve a consultar.** La ventanilla devuelve la fila guardada, el nombre del fondo se toma de la lista que ya está cargada y la fila de la lista se actualiza sin volver a buscar. Si se hubiera reabierto la ficha con `consultar_activo`, cada guardado dejaría además una `CONSULTA` en el registro.
+- **La lista de fondos se pide una sola vez** por visita a la página, aunque se abra el formulario varias veces.
+
+### 29.3. Una limitación: vaciar un campo
+
+`modificar_activo` usa `COALESCE(nuevo_valor, valor_actual)`: si un campo llega vacío, se queda como estaba. Es el "vacío = no cambiar" de la sección 23, y tiene una consecuencia: **desde el formulario no se puede vaciar un campo que ya tenía dato** (por ejemplo, una fecha de venta puesta por error). Además, mandar un texto vacío (`""`) en lugar de nada guardaría un texto vacío en lugar de `NULL`.
+
+Mientras no se cambie la función, la página es honesta: si se vacía un campo que tenía dato, no envía nada y avisa de que, por ahora, no se puede vaciar desde aquí. Nunca parece que se ha guardado algo que no se ha guardado. Queda pendiente decidir si una migración permite vaciar campos a propósito.
+
+### 29.4. Cómo se probó
+
+Primero, con una base de datos simulada que apuntaba cada llamada:
+
+| # | Caso | Resultado | Llamada |
+|---|---|---|---|
+| 1 | Editar sin cambiar nada | "No has cambiado nada." | Ninguna |
+| 2 | Vaciar la fecha de compra | Aviso de que no se puede vaciar | Ninguna |
+| 3 | Cambiar municipio y estado | Aviso verde y fila de la lista actualizada | `modificar_activo` solo con esos dos campos |
+| 4 | Crear sin código ni dirección | "El código y la dirección son obligatorios." | Ninguna |
+| 5 | Crear con un código repetido | "Ya existe un activo con ese código.", conservando lo escrito | `crear_activo`, rechazada |
+| 6 | Crear uno válido | Ficha nueva, con el fondo por su nombre | `crear_activo` |
+| 7 | Lector con Activos, sin escritura | Ve la ficha, pero ni "Editar" ni "+ Nuevo activo" | — |
+
+Después, con Supabase: se modificó un activo y se creó otro.
+
+| id | Acción | `registro_id` | Detalle |
+|---|---|---|---|
+| 158 | `CONSULTA` | 6 | — |
+| 159 | `MODIFICACION` | 6 | `{"municipio": {"antes": null, "despues": "Madrid"}}` |
+| 160 | `CREACION` | 12 | — |
+
+La modificación solo registra el campo que se cambió, y después de guardar no hay ninguna `CONSULTA`.
+
+**De paso, un fallo del paso 3:** al probar la `033` como lector apareció el hueco de la ficha encima de la tarjeta "Sin acceso". La página ocultaba la lista, pero no el contenedor de lista y ficha añadido en el paso 3. Se arregló y se volvieron a probar los tres usuarios. **Lección: al cambiar la estructura de una página, se repiten las pruebas con todos los usuarios, no solo con el editor.**
+
 ---
 
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*

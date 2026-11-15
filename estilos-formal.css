@@ -559,6 +559,23 @@ td.flecha { width: 30px; color: var(--tinta-apagada); text-align: right; }
 .datos dd.sin-dato { color: #6F7D83; }
 .ficha-pie { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid var(--linea-tenue); }
 .ficha .mensaje-error { margin: 0; }
+.ficha .mensaje-exito { margin: 0 0 16px; }
+/* Título suelto (formularios y avisos), con el mismo aire debajo que el de la ficha */
+.ficha > h2 { margin: 2px 0 18px; }
+
+/* Formularios de editar y crear, en el sitio de la ficha (paso 4).
+   Se llama .form-activo y no .formulario, que es una clase del login. */
+.form-activo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+.form-activo .ancho { grid-column: 1 / -1; }
+.form-activo label { display: block; margin-bottom: 5px; }
+.mensaje-formulario { grid-column: 1 / -1; margin: 0; font-size: 14px; }
+.mensaje-formulario:empty { display: none; }
+.acciones { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; margin-top: 6px; }
+/* Guardar y Cancelar, del mismo ancho */
+.acciones .zona-boton, .acciones .boton-linea { width: 140px; }
+.acciones .boton-relieve { width: 100%; }
+.boton-relieve:disabled { opacity: 0.6; cursor: progress; }
+.barra .zona-boton { margin-left: auto; }
 
 .cerrar-ficha { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; display: grid; place-items: center; background: transparent; border: 0; color: var(--tinta-suave); font-size: 22px; line-height: 1; transition: color 0.25s ease; }
 .cerrar-ficha:focus-visible { outline: 1px solid var(--acento); color: var(--acento); }
@@ -590,7 +607,7 @@ td.flecha { width: 30px; color: var(--tinta-apagada); text-align: right; }
 
 @media (max-width: 560px) {
   .usuario-nombre { display: none; }
-  .datos { grid-template-columns: 1fr; }
+  .datos, .form-activo { grid-template-columns: 1fr; }
 }
 
 /* ============================================================
