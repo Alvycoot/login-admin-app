@@ -52,6 +52,10 @@
   </header>
 
   <main class="trabajo" id="contenido" hidden>
+    <!-- Plantilla del pie de la ficha: el icono del reloj se copia de aquí (sin construir HTML a mano en JavaScript) -->
+    <template id="plantilla-registrada">
+      <span class="registrada"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Consulta registrada a tu nombre</span>
+    </template>
     <!-- Lo que ve quien tiene la sección Activos: el buscador (paso 2) y sus resultados -->
     <section class="barra aparece-2" id="barra">
       <div class="buscador">
@@ -67,22 +71,36 @@
       </dl>
     </section>
 
-    <!-- Resultados de buscar_activos: solo código, dirección y municipio -->
-    <section class="bloque aparece-3" id="resultados">
-      <div class="bloque-cabecera">
-        <div>
-          <p class="eyebrow">Resultados</p>
-          <p class="meta" id="meta-busqueda" aria-live="polite"></p>
+    <div class="columnas" id="columnas">
+      <!-- Resultados de buscar_activos: solo código, dirección y municipio -->
+      <section class="bloque aparece-3" id="resultados">
+        <div class="bloque-cabecera">
+          <div>
+            <p class="eyebrow">Resultados</p>
+            <p class="meta" id="meta-busqueda" aria-live="polite"></p>
+          </div>
+          <span class="registrada" id="aviso-registrada" title="Cada búsqueda queda apuntada en el registro de actividad" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Búsqueda registrada
+          </span>
         </div>
-        <span class="registrada" id="aviso-registrada" title="Cada búsqueda queda apuntada en el registro de actividad" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Búsqueda registrada
-        </span>
+        <table>
+          <thead><tr><th>Código</th><th>Dirección</th><th>Municipio</th><th></th></tr></thead>
+          <tbody id="filas"></tbody>
+        </table>
+      </section>
+
+      <!-- La ficha del activo elegido (consultar_activo), paso 3.
+           Sin activo elegido queda un hueco; al elegir uno, la ficha se despliega de izquierda a derecha. -->
+      <div class="columna-ficha">
+        <div class="hueco aparece-3" id="hueco-ficha">
+          <div>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h9v14H6V8z"/><path d="M9 5v3H6"/><path d="M9 12h6M9 15h4"/></svg>
+            Elige un activo de la lista para ver su ficha.
+          </div>
+        </div>
+        <aside class="bloque ficha" id="ficha" aria-live="polite" hidden></aside>
       </div>
-      <table>
-        <thead><tr><th>Código</th><th>Dirección</th><th>Municipio</th></tr></thead>
-        <tbody id="filas"></tbody>
-      </table>
-    </section>
+    </div>
 
     <!-- Lo que ve quien no tiene la sección Activos -->
     <section class="bloque sin-acceso aparece-2" id="sin-acceso" hidden>

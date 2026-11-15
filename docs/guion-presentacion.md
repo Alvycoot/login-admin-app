@@ -2743,6 +2743,74 @@ Se apunta todo, letra a letra. Las reglas de la página sirven para que el regis
 
 Con pocos datos, sí. Pero la página recibiría todos los activos, también los que el usuario no ha buscado, y las búsquedas no quedarían registradas. Con la ventanilla, cada usuario recibe solo lo que busca y queda constancia.
 
+## 28. Las pantallas — paso 3: la ficha del activo
+
+Al elegir un activo de la lista, la página llama a `consultar_activo` y despliega su ficha en la columna de la derecha. Antes hubo que cambiar la función, porque la ficha necesitaba un dato que no entregaba: el nombre del fondo propietario.
+
+### 28.1. La `032`: el nombre del fondo, sin el resto del fondo
+
+El editor de prueba solo tiene la sección Activos, así que no puede leer nada de `fondos`. Pero para quien trabaja con activos, saber de qué fondo es cada uno forma parte del propio activo, y "fondo nº 1" no le dice nada. La decisión: **`consultar_activo` entrega también el nombre del fondo, y solo el nombre**. El CIF y el IBAN siguen protegidos tras la sección Fondos.
+
+```sql
+BEGIN;
+
+DROP FUNCTION public.consultar_activo(bigint);
+
+CREATE FUNCTION public.consultar_activo(activo_id bigint)
+RETURNS TABLE (
+    id bigint, codigo text, direccion text, municipio text, referencia_catastral text,
+    fondo_id bigint, fondo_nombre text, estado text, fecha_compra date, fecha_venta date, creado_en timestamptz
+)
+...
+    RETURN QUERY
+    SELECT a.id, a.codigo, a.direccion, a.municipio, a.referencia_catastral,
+           a.fondo_id, f.nombre, a.estado, a.fecha_compra, a.fecha_venta, a.creado_en
+    FROM public.activos a
+    JOIN public.fondos f ON f.id = a.fondo_id
+    WHERE a.id = activo_id;
+...
+COMMIT;
+```
+
+1. **`DROP` y `CREATE`, como en la `025`.** La función devolvía `SETOF public.activos`, filas con la forma exacta de la tabla. Con una columna más, la forma cambia, y `CREATE OR REPLACE` no permite cambiar lo que devuelve una función.
+2. **`BEGIN` / `COMMIT`: todo o nada.** Entre el `DROP` y el `CREATE`, si algo fallara, la aplicación se quedaría sin la función. Dentro de una transacción, o se aplica todo o no se aplica nada.
+3. **`JOIN` y no `LEFT JOIN`:** `fondo_id` es obligatorio y siempre apunta a un fondo que existe.
+4. **El alias en cada columna** (`a.id`, `a.codigo`…). Con `RETURNS TABLE`, cada columna del resultado es también una variable dentro de la función; sin el alias, Postgres no sabría a cuál se refiere `id` ("column reference is ambiguous").
+5. **El `DROP` borra los permisos**, así que el `REVOKE` y el `GRANT` se repiten.
+
+| # | Usuario | Prueba | Resultado |
+|---|---|---|---|
+| 1 | Editor | `consultar_activo(1)` | 1 fila, `fondo_nombre: 'BODEGA DE ALS SL'` |
+| 2 | Editor | `consultar_activo(999)` | `[]`, sin apuntar nada |
+| 3 | Lector | `consultar_activo(1)` | `400`: "No tienes permiso para consultar activos" |
+| 4 | Admin | Leer el registro | `CONSULTA` / `ACTIVOS` / 1; nada del 999 ni del lector |
+
+### 28.2. La ficha en la página
+
+- **Las filas se pueden elegir** con un clic, o con Tab hasta la fila e Intro, y se tiñen del color de Activos. La elegida lleva una barra a la izquierda.
+- **La ficha se despliega en tres tiempos**, de izquierda a derecha, como si saliera de la lista: el panel con su etiqueta (0,8 s), después el código y el estado, y por último los datos. Se repite completa en cada selección: se probó una versión más ágil al cambiar de activo y se descartó.
+- **La «×» la repliega** hacia la izquierda, en 0,3 s (el cierre, más corto que la apertura), y vuelve el hueco "Elige un activo de la lista".
+- **Respuestas tardías:** si se eligen dos activos muy seguidos, cada consulta lleva un número y solo se pinta la última, como en el buscador.
+- **El fin del repliegue** se detecta con el aviso `animationend`, filtrando el de la propia ficha (el de sus hijos también sube) y con un temporizador de respaldo de 350 ms por si el aviso no llegara, para que la columna nunca se quede vacía.
+- **Sin botón "Editar"** hasta el paso 4: la página no enseña nada que todavía no hace.
+
+Cada ficha abierta queda apuntada como `CONSULTA`. Con el buscador del paso 2, el registro cuenta las dos cosas: qué se buscó y qué activo se abrió.
+
+| id | Acción | `registro_id` |
+|---|---|---|
+| 148 | `BUSQUEDA` ("calle") | — |
+| 149 | `CONSULTA` / `ACTIVOS` | 2 |
+| 150 | `CONSULTA` / `ACTIVOS` | 3 |
+| 151 | `CONSULTA` / `ACTIVOS` | 4 |
+
+### 28.3. Probar antes de aprobar: una rama de Git
+
+Este paso se construyó en una **rama**, `paso-3-ficha`: una copia paralela del proyecto dentro del mismo repositorio. La rama principal (`main`), la que está en GitHub y funciona, no se tocó mientras se probaba la versión real con Supabase. Aprobada, la rama se fusionó con `main` (*merge*). Si no hubiera convencido, bastaba con volver a `main` y todo habría quedado como estaba.
+
+### 28.4. De paso: el resalte de las tarjetas del login
+
+Probando, apareció un defecto en el login: el velo del resalte asomaba por fuera de la esquina superior izquierda de las tarjetas. Se midieron las esquinas en la imagen (unos 52 px arriba a la izquierda y 56 px abajo a la derecha, de 2752 px de ancho) y el recorte del velo pasó de 0,9 a 1,9 `cqw` y de 2 a 2,05 `cqw`. **Medir en el dibujo en lugar de ajustar a ojo.**
+
 ---
 
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*

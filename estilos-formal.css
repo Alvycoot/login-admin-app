@@ -359,8 +359,10 @@ button { font: inherit; cursor: pointer; }
 .s-fondos { --c: var(--sec-fondos); }
 .s-suministros { --c: var(--sec-suministros); }
 
-/* Resalte al pasar el cursor: un velo del color de la sección con la forma del panel
-   (esquinas superior izquierda e inferior derecha recortadas) y el icono brilla más.
+/* Resalte al pasar el cursor: un velo del color de la sección con la forma del panel y el icono brilla más.
+   Las esquinas recortadas están medidas en la imagen: unos 52 px arriba a la izquierda (1,9 cqw)
+   y unos 56 px abajo a la derecha (2,05 cqw), de 2752 px de ancho. Con una esquina más pequeña, el velo asomaba
+   por fuera de la diagonal del dibujo.
    Son tarjetas informativas: ni se levantan ni llevan cursor de mano. */
 .panel::before {
   content: "";
@@ -370,7 +372,7 @@ button { font: inherit; cursor: pointer; }
   opacity: 0;
   transition: opacity 0.25s ease;
   background: linear-gradient(90deg, color-mix(in srgb, var(--c) 16%, transparent), color-mix(in srgb, var(--c) 4%, transparent));
-  clip-path: polygon(0.9cqw 0, 100% 0, 100% calc(100% - 2cqw), calc(100% - 2cqw) 100%, 0 100%, 0 0.9cqw);
+  clip-path: polygon(1.9cqw 0, 100% 0, 100% calc(100% - 2.05cqw), calc(100% - 2.05cqw) 100%, 0 100%, 0 1.9cqw);
 }
 
 @media (hover: hover) {
@@ -529,6 +531,56 @@ td { padding: 11px 12px; border-bottom: 1px solid var(--linea-tenue); }
 .despliega-abajo .bloque-cabecera { animation: entra-fila 0.45s ease-out 0.2s both; }
 .despliega-abajo tbody tr { animation: entra-fila 0.45s ease-out both; animation-delay: calc(0.35s + min(var(--i, 0), 10) * 0.1s); }
 
+/* Lista y ficha, en dos columnas */
+.columnas { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 22px; align-items: start; }
+
+/* Filas que se pueden elegir (con el ratón, o con Tab e Intro): velo del color de Activos en la fila entera
+   (por celda se vería un salto de tono en cada columna), y la elegida con una barra a la izquierda */
+tbody tr.elegible { cursor: pointer; background: linear-gradient(90deg, color-mix(in srgb, var(--sec-activos) 14%, transparent), color-mix(in srgb, var(--sec-activos) 4%, transparent)) no-repeat; background-size: 0 0; }
+tbody tr.elegible:hover, tbody tr.elegible:focus-visible, tbody tr.elegible[aria-selected="true"] { background-size: 100% 100%; }
+tbody tr.elegible:focus-visible { outline: none; }
+tbody tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--sec-activos); }
+td.flecha { width: 30px; color: var(--tinta-apagada); text-align: right; }
+
+/* La columna de la ficha acompaña al bajar por la lista */
+.columna-ficha { position: sticky; top: 20px; }
+
+/* El hueco que queda sin ficha: un contorno tenue que invita a elegir */
+.hueco { min-height: 260px; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--tinta-apagada); font-size: 14px; border: 1px dashed color-mix(in srgb, var(--linea-fuerte) 55%, transparent); }
+.hueco svg { display: block; margin: 0 auto 10px; width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; opacity: 0.7; }
+
+/* La ficha */
+.ficha h2 { font-size: 30px; margin: 0; }
+.ficha-titulo { display: flex; align-items: center; gap: 12px; margin: 2px 0 18px; }
+.datos { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; margin: 0 0 20px; }
+.datos .ancho { grid-column: 1 / -1; }
+.datos dt { font-size: 12px; font-weight: 600; color: var(--tinta-apagada); }
+.datos dd { margin: 2px 0 0; }
+.datos dd.sin-dato { color: #6F7D83; }
+.ficha-pie { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid var(--linea-tenue); }
+.ficha .mensaje-error { margin: 0; }
+
+.cerrar-ficha { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; display: grid; place-items: center; background: transparent; border: 0; color: var(--tinta-suave); font-size: 22px; line-height: 1; transition: color 0.25s ease; }
+.cerrar-ficha:focus-visible { outline: 1px solid var(--acento); color: var(--acento); }
+@media (hover: hover) { .cerrar-ficha:hover { color: var(--acento); } }
+
+/* Despliegue de la ficha, de izquierda a derecha (como si saliera de la lista), en tres tiempos:
+   1) el panel con su etiqueta "Ficha del activo" (0,8 s); 2) el código y el estado (.paso-1); 3) el resto (.paso-2).
+   Se repite completo cada vez que se elige un activo. Al cerrar, se repliega hacia la izquierda, más rápido (0,3 s).
+   Solo se animan posición y opacidad. */
+@keyframes despliega { from { opacity: 0; transform: translateX(-36px); } to { opacity: 1; transform: none; } }
+@keyframes recoge { to { opacity: 0; transform: translateX(-36px); } }
+@keyframes entra-dato { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+.ficha.despliega { animation: despliega 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.ficha.despliega .paso-1 { animation: entra-dato 0.45s ease-out 0.35s both; }
+.ficha.despliega .paso-2 { animation: entra-dato 0.5s ease-out 0.65s both; }
+.ficha.recoge { animation: recoge 0.3s ease-in both; }
+
+@media (max-width: 1000px) {
+  .columnas { grid-template-columns: 1fr; }
+  .columna-ficha { position: static; }
+}
+
 @media (max-width: 900px) {
   .franja-circuitos { aspect-ratio: auto; height: 96px; background-size: cover; background-position: center top; }
   .cabecera .circuitos { display: none; }
@@ -538,6 +590,7 @@ td { padding: 11px 12px; border-bottom: 1px solid var(--linea-tenue); }
 
 @media (max-width: 560px) {
   .usuario-nombre { display: none; }
+  .datos { grid-template-columns: 1fr; }
 }
 
 /* ============================================================
