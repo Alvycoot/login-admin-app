@@ -2862,7 +2862,7 @@ RETURNS TABLE (id bigint, nombre text)
 
 `modificar_activo` usa `COALESCE(nuevo_valor, valor_actual)`: si un campo llega vacío, se queda como estaba. Es el "vacío = no cambiar" de la sección 23, y tiene una consecuencia: **desde el formulario no se puede vaciar un campo que ya tenía dato** (por ejemplo, una fecha de venta puesta por error). Además, mandar un texto vacío (`""`) en lugar de nada guardaría un texto vacío en lugar de `NULL`.
 
-Mientras no se cambie la función, la página es honesta: si se vacía un campo que tenía dato, no envía nada y avisa de que, por ahora, no se puede vaciar desde aquí. Nunca parece que se ha guardado algo que no se ha guardado. Queda pendiente decidir si una migración permite vaciar campos a propósito.
+Mientras no se cambie la función, la página es honesta: si se vacía un campo que tenía dato, no envía nada y avisa de que, por ahora, no se puede vaciar desde aquí. Nunca parece que se ha guardado algo que no se ha guardado. La limitación se resolvió justo después, con la `034` (sección 30).
 
 ### 29.4. Cómo se probó
 
@@ -2889,6 +2889,74 @@ Después, con Supabase: se modificó un activo y se creó otro.
 La modificación solo registra el campo que se cambió, y después de guardar no hay ninguna `CONSULTA`.
 
 **De paso, un fallo del paso 3:** al probar la `033` como lector apareció el hueco de la ficha encima de la tarjeta "Sin acceso". La página ocultaba la lista, pero no el contenedor de lista y ficha añadido en el paso 3. Se arregló y se volvieron a probar los tres usuarios. **Lección: al cambiar la estructura de una página, se repiten las pruebas con todos los usuarios, no solo con el editor.**
+
+## 30. Vaciar campos a propósito: la `034`
+
+En `modificar_activo`, un campo que llega vacío significa "no cambiar" (sección 23), así que no había forma de decir "vacía este campo" (sección 29.3). Se estudiaron tres opciones:
+
+- **Una lista explícita de campos a vaciar** (la elegida). Vaciar es una orden clara, no se deduce de un campo en blanco, y si no se manda la lista, la función hace lo mismo que antes.
+- **Un paquete JSON** en el que "la clave está, pero vale nulo" significa vaciar. Más flexible, pero obliga a reescribir la función entera y es más difícil de leer.
+- **Un valor especial** ("-" o "VACIAR"). Descartado: ese valor podría ser algún día un dato real.
+
+### 30.1. La función
+
+```sql
+BEGIN;
+
+DROP FUNCTION public.modificar_activo(bigint, text, text, text, bigint, text, date, date);
+
+CREATE FUNCTION public.modificar_activo(
+    activo_id bigint,
+    ...
+    nueva_fecha_venta date DEFAULT NULL,
+    campos_a_vaciar text[] DEFAULT '{}'
+)
+...
+    FOREACH campo IN ARRAY campos_a_vaciar LOOP
+        IF campo NOT IN ('municipio', 'referencia_catastral', 'fecha_compra', 'fecha_venta') THEN
+            RAISE EXCEPTION 'No se puede vaciar el campo %', campo;
+        END IF;
+    END LOOP;
+...
+    UPDATE public.activos a
+    SET ...
+        municipio = CASE WHEN 'municipio' = ANY(campos_a_vaciar) THEN NULL
+                         ELSE COALESCE(nuevo_municipio, a.municipio) END,
+...
+COMMIT;
+```
+
+1. **`text[] DEFAULT '{}'`:** una lista de textos que, si no se manda, está vacía. Por eso nada de lo anterior cambia.
+2. **Solo los campos opcionales.** La dirección, el estado y el fondo son obligatorios en la tabla: pedir vaciarlos da un error en castellano, antes de tocar nada.
+3. **No se puede pedir a la vez cambiar y vaciar el mismo campo.**
+4. **`CASE WHEN 'municipio' = ANY(campos_a_vaciar)`:** "si el campo está en la lista, ponlo a `NULL`; si no, lo de siempre". `ANY` comprueba si un valor está dentro de una lista.
+5. **El registro no necesitó cambios:** el disparador ya guarda el antes y el después de cada campo cambiado, también cuando el después es `NULL`.
+
+### 30.2. La firma de una función
+
+Postgres identifica cada función por su nombre **y** por los tipos de sus parámetros: su **firma**. Con un parámetro más, `modificar_activo(bigint, text, text, text, bigint, text, date, date)` pasa a ser otra función. Un `CREATE OR REPLACE` no habría sustituido a la vieja: habría creado una segunda con el mismo nombre (una *sobrecarga*), y Supabase no habría sabido a cuál llamar. Por eso se borró la vieja y se creó la nueva, dentro de una transacción, y el `REVOKE` y el `GRANT` usan la firma nueva, terminada en `text[]`.
+
+La primera prueba fue comprobar que no quedaba la vieja al lado:
+
+```sql
+SELECT count(*) FROM pg_proc WHERE proname = 'modificar_activo';   -- 1
+```
+
+`pg_proc` es el catálogo interno donde Postgres guarda todas las funciones.
+
+### 30.3. En la página
+
+El aviso de "no se puede vaciar" desapareció: si se borra un campo opcional que tenía dato, la página lo manda en `campos_a_vaciar`.
+
+### 30.4. Cómo se probó
+
+| # | Prueba | Resultado |
+|---|---|---|
+| 1 | `count(*)` en `pg_proc` | 1 |
+| 2 | Borrar el municipio del activo 6 desde la página | Ficha con "Sin dato" |
+| 3 | `campos_a_vaciar: ["direccion"]` | "No se puede vaciar el campo direccion" |
+| 4 | Cambiar y vaciar a la vez el municipio | "No se puede cambiar y vaciar a la vez el mismo campo" |
+| 5 | Leer el registro | `MODIFICACION` 166: `{"municipio": {"antes": "Madrid", "despues": null}}`; nada de las pruebas 3 y 4 |
 
 ---
 

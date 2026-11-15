@@ -394,27 +394,26 @@ async function abrirFormulario(activo) {
 
         let llamada, parametros;
         if (activo) {
-            // Solo se envían los campos cambiados: modificar_activo entiende "vacío = no cambiar" (027),
-            // y así el registro apunta solo lo que se tocó.
+            // Solo se envían los campos cambiados: en modificar_activo, un parámetro que no llega significa "no cambiar",
+            // y así el registro apunta solo lo que se tocó. Un campo opcional que tenía dato y se ha borrado
+            // va en la lista campos_a_vaciar (034). Los obligatorios no pueden quedar vacíos (lo comprueba arriba).
             const cambios = [
-                ["nueva_direccion", valor(direccion), activo.direccion, "Dirección"],
-                ["nuevo_municipio", valor(municipio), activo.municipio, "Municipio"],
-                ["nuevo_estado", estado.value, activo.estado, "Estado"],
-                ["nueva_referencia_catastral", valor(referencia), activo.referencia_catastral, "Referencia catastral"],
-                ["nuevo_fondo_id", Number(fondo.value), activo.fondo_id, "Fondo propietario"],
-                ["nueva_fecha_compra", compra.value, activo.fecha_compra, "Fecha de compra"],
-                ["nueva_fecha_venta", venta.value, activo.fecha_venta, "Fecha de venta"],
+                // [parámetro, valor nuevo, valor original, columna]
+                ["nueva_direccion", valor(direccion), activo.direccion, "direccion"],
+                ["nuevo_municipio", valor(municipio), activo.municipio, "municipio"],
+                ["nuevo_estado", estado.value, activo.estado, "estado"],
+                ["nueva_referencia_catastral", valor(referencia), activo.referencia_catastral, "referencia_catastral"],
+                ["nuevo_fondo_id", Number(fondo.value), activo.fondo_id, "fondo_id"],
+                ["nueva_fecha_compra", compra.value, activo.fecha_compra, "fecha_compra"],
+                ["nueva_fecha_venta", venta.value, activo.fecha_venta, "fecha_venta"],
             ];
-            // Un campo que tenía dato y se ha vaciado no se puede guardar así: llegaría vacío y la función lo dejaría como estaba
-            const vaciados = cambios.filter(function (c) { return c[1] === "" && c[2]; });
-            if (vaciados.length > 0) {
-                avisar("Por ahora no se puede vaciar un campo que ya tenía dato (" + vaciados.map(function (c) { return c[3]; }).join(", ") + "). Vuelve a escribirlo o cámbialo por otro valor.");
-                return;
-            }
             parametros = { activo_id: activo.id };
+            const vaciar = [];
             for (const c of cambios) {
-                if (c[1] !== "" && c[1] !== (c[2] === null ? "" : c[2])) parametros[c[0]] = c[1];
+                if (c[1] === "" && c[2]) vaciar.push(c[3]);
+                else if (c[1] !== "" && c[1] !== (c[2] === null ? "" : c[2])) parametros[c[0]] = c[1];
             }
+            if (vaciar.length > 0) parametros.campos_a_vaciar = vaciar;
             if (Object.keys(parametros).length === 1) { avisar("No has cambiado nada."); return; }
             llamada = "modificar_activo";
         } else {
