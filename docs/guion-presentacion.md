@@ -2958,6 +2958,85 @@ El aviso de "no se puede vaciar" desapareció: si se borra un campo opcional que
 | 4 | Cambiar y vaciar a la vez el municipio | "No se puede cambiar y vaciar a la vez el mismo campo" |
 | 5 | Leer el registro | `MODIFICACION` 166: `{"municipio": {"antes": "Madrid", "despues": null}}`; nada de las pruebas 3 y 4 |
 
+## 31. El panel del admin — paso 1: preparar el registro y la lista de usuarios
+
+El panel del admin enseña quién usa la aplicación y qué hace: una lista de usuarios con su último inicio de sesión, una línea de tiempo de la actividad y filtros por usuario, acción y fechas. Antes de construirlo se repasó el plan buscando sus puntos débiles, y salieron dos cosas que había que preparar en la base de datos.
+
+### 31.1. La `035`: una sección nueva y los índices que faltaban
+
+```sql
+BEGIN;
+
+ALTER TABLE public.registro_actividad
+    DROP CONSTRAINT registro_actividad_seccion_check;
+
+ALTER TABLE public.registro_actividad
+    ADD CONSTRAINT registro_actividad_seccion_check
+    CHECK (seccion IN ('FONDOS', 'ACTIVOS', 'SUMINISTROS', 'ACTIVIDAD'));
+
+CREATE INDEX registro_actividad_perfil_fecha_idx
+    ON public.registro_actividad (perfil_id, ocurrido_en DESC);
+
+CREATE INDEX registro_actividad_fecha_idx
+    ON public.registro_actividad (ocurrido_en DESC);
+
+COMMIT;
+```
+
+1. **Sección `ACTIVIDAD`.** Cuando el admin mira el registro, eso también queda apuntado: quien vigila también deja rastro. La regla de la columna `seccion` solo admitía las tres tablas, así que se borró y se volvió a crear con la sección nueva. Una regla `CHECK` no se puede editar: se quita y se pone otra.
+2. **Índices.** Un índice es como el índice de un libro: permite ir directo a las filas sin leer la tabla entera. El diseño en papel ya los preveía, pero ninguna migración los había creado. Uno sirve para "la actividad de este usuario, de la más reciente a la más antigua" y el otro, para "toda la actividad por fecha". Con pocas filas no se nota; con miles, sí.
+3. **Todo en una transacción:** o se aplican los cuatro cambios, o ninguno.
+
+### 31.2. La `036`: `usuarios_admin()`
+
+```sql
+CREATE FUNCTION public.usuarios_admin()
+RETURNS TABLE (id uuid, nombre text, email text, rol text, activo boolean,
+               secciones_lectura text[], secciones_escritura text[],
+               ultimo_inicio_sesion timestamptz, ultima_actividad timestamptz, acciones bigint)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF NOT privado.es_admin() THEN
+        RAISE EXCEPTION 'Solo el administrador puede ver los usuarios';
+    END IF;
+
+    RETURN QUERY
+    SELECT p.id, p.nombre, u.email::text, p.rol, p.activo,
+           ...,   -- secciones de lectura y de escritura según el rol
+           (SELECT max(r.ocurrido_en) FROM public.registro_actividad r WHERE r.perfil_id = p.id AND r.accion = 'LOGIN'),
+           (SELECT max(r.ocurrido_en) FROM public.registro_actividad r WHERE r.perfil_id = p.id),
+           (SELECT count(*) FROM public.registro_actividad r WHERE r.perfil_id = p.id)
+    FROM public.perfiles p
+    JOIN auth.users u ON u.id = p.id
+    ORDER BY p.nombre;
+
+    INSERT INTO public.registro_actividad (perfil_id, accion, seccion, detalle)
+    VALUES (auth.uid(), 'CONSULTA', 'ACTIVIDAD', jsonb_build_object('vista', 'usuarios'));
+END;
+$$;
+```
+
+1. **Solo el admin.** El guardián de siempre (`privado.es_admin()`), con un mensaje en castellano.
+2. **El correo sale de `auth.users`**, la tabla de cuentas de Supabase, para saber qué cuenta es cada persona. Una función `SECURITY DEFINER` puede leerla; la página, directamente, no.
+3. **"Último inicio de sesión" y "última actividad", y no "última conexión".** Una sesión recordada no genera un `LOGIN` nuevo, así que "última conexión" habría sido un dato inexacto. Se enseñan los dos datos con su nombre real.
+4. **Subconsultas por usuario:** cada `(SELECT ...)` calcula un dato de esa persona en el registro. Aquí es donde trabajan los índices de la `035`.
+5. **Se apunta después de leer.** Si el `INSERT` fuera antes, la propia consulta contaría en la actividad del admin que se está calculando.
+6. **Una duplicación consciente.** Las secciones repiten las reglas de `tiene_seccion` y `puede_escribir` (secciones 8 y 10), porque esas funciones solo sirven para el usuario que llama. Si cambian esas reglas, hay que cambiar también esta función; está avisado en un comentario.
+
+### 31.3. Cómo se probó
+
+| # | Prueba | Resultado |
+|---|---|---|
+| 1 | Ejecutar la `035` y mirar `pg_indexes` | Los dos índices creados |
+| 2 | Ejecutar la `036` | "Success" |
+| 3 | Admin | Los 3 usuarios ordenados por nombre. Admin: las tres secciones, su último inicio de sesión igual a su última actividad (la consulta en curso no se cuenta), 61 acciones. Editor: lee y escribe Activos, 71. Lector: lee Fondos y Suministros, no escribe en ninguna, 39 |
+| 4 | Editor | "Solo el administrador puede ver los usuarios" |
+| 5 | Sin sesión | `401`: "permission denied for function usuarios_admin" (el `REVOKE` a `anon`) |
+| 6 | Leer el registro | 170: `CONSULTA` / `ACTIVIDAD` / `{"vista": "usuarios"}`; nada del intento del editor. Que se guardara con `ACTIVIDAD` confirma también la regla nueva de la `035` |
+
 ---
 
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
