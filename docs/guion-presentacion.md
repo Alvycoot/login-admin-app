@@ -3133,6 +3133,26 @@ Desde la consola del navegador, con una ayuda que pinta la respuesta en tabla y 
 | 10 | Sin sesión | `401`: "permission denied for function actividad_admin" |
 | 11 | `detalle` de las consultas | 177 con `antes_de: 169`; 178 con `accion`; 179 con `desde: 2026-11-15T23:00:00+00:00` (la medianoche de España en UTC); 184 con `usuario`. Entre la 180 y la 183 solo hay dos `LOGIN`: los errores y los rechazos no dejan rastro |
 
+## 33. El panel del admin — paso 3: se cierra la lectura directa del registro
+
+```sql
+DROP POLICY "Solo el admin lee el registro de actividad" ON public.registro_actividad;
+```
+
+1. **El hueco que cierra.** La política de la `012` (sección 11) dejaba al admin leer el registro directamente, con `.from("registro_actividad").select(...)`, y esa lectura no se apuntaba en ninguna parte. Con `actividad_admin` y `usuarios_admin` ya probadas, sobra: ahora el admin solo puede mirar el registro por esas dos ventanillas, y las dos dejan rastro. Quien vigila también queda vigilado.
+2. **Es lo mismo que hizo la `026` con las tablas** (sección 22): primero se construyen y prueban las ventanillas, y después se cierra la puerta directa. Hacerlo al revés habría dejado al admin sin forma de ver el registro.
+3. **Por qué los disparadores siguen escribiendo.** `apuntar_actividad` (secciones 12 y 14) y `apuntar_inicio_sesion` (sección 13) son `SECURITY DEFINER`: se ejecutan con los permisos de su dueño, al que no le afecta Row Level Security. Lo mismo vale para las ventanillas. La política solo regulaba lo que se pide desde fuera.
+4. **Antes de borrarla se comprobó que era la única política del registro.** Sin políticas y con RLS activado, la tabla queda cerrada a cualquier lectura o escritura desde fuera.
+
+### 33.1. Cómo se probó
+
+| # | Prueba | Resultado |
+|---|---|---|
+| 1 | Antes: lectura directa como admin | 3 filas (185, 184, 183), sin dejar rastro: el hueco que se cierra |
+| 2 | Ejecutar la `038` | "Success" |
+| 3 | Después: la misma lectura | `[]`, sin error, igual que en la sección 22 |
+| 4 | Volver a entrar, buscar, abrir y editar ACT-006, y mirar `actividad_admin` | 186 `LOGIN`, 187 `BUSQUEDA` "calle", 188 `CONSULTA` y 189 `MODIFICACION` de ACT-006: los disparadores y las ventanillas siguen funcionando |
+
 ---
 
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
