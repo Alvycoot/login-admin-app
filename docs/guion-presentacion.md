@@ -3037,6 +3037,102 @@ $$;
 | 5 | Sin sesión | `401`: "permission denied for function usuarios_admin" (el `REVOKE` a `anon`) |
 | 6 | Leer el registro | 170: `CONSULTA` / `ACTIVIDAD` / `{"vista": "usuarios"}`; nada del intento del editor. Que se guardara con `ACTIVIDAD` confirma también la regla nueva de la `035` |
 
+## 32. El panel del admin — paso 2: la línea de tiempo, `actividad_admin`
+
+La segunda ventanilla del panel entrega el registro de actividad como una línea de tiempo, de lo más reciente a lo más antiguo, con filtros por usuario, acción y fechas, y por páginas.
+
+### 32.1. La `037`
+
+```sql
+CREATE FUNCTION public.actividad_admin(
+    filtro_usuario uuid DEFAULT NULL,
+    filtro_accion text DEFAULT NULL,
+    desde timestamptz DEFAULT NULL,
+    hasta timestamptz DEFAULT NULL,
+    ocultar_mis_consultas boolean DEFAULT true,
+    antes_de bigint DEFAULT NULL,
+    tamano integer DEFAULT 50
+)
+RETURNS TABLE (id bigint, ocurrido_en timestamptz, perfil_id uuid, nombre text, accion text,
+               seccion text, registro_id bigint, registro_etiqueta text, detalle jsonb)
+...
+    IF NOT privado.es_admin() THEN
+        RAISE EXCEPTION 'Solo el administrador puede ver la actividad';
+    END IF;
+    ...   -- validar la acción, el orden de las fechas y el tamaño (entre 1 y 200)
+
+    RETURN QUERY
+    SELECT r.id, r.ocurrido_en, r.perfil_id, p.nombre, r.accion, r.seccion, r.registro_id,
+        CASE r.seccion
+            WHEN 'ACTIVOS' THEN (SELECT a.codigo FROM public.activos a WHERE a.id = r.registro_id)
+            WHEN 'FONDOS' THEN (SELECT f.nombre FROM public.fondos f WHERE f.id = r.registro_id)
+            WHEN 'SUMINISTROS' THEN (SELECT s.tipo || ' · ' || a.codigo ...)
+        END,
+        r.detalle
+    FROM public.registro_actividad r
+    JOIN public.perfiles p ON p.id = r.perfil_id
+    WHERE (filtro_usuario IS NULL OR r.perfil_id = filtro_usuario)
+      AND (filtro_accion IS NULL OR r.accion = filtro_accion)
+      AND (desde IS NULL OR r.ocurrido_en >= desde)
+      AND (hasta IS NULL OR r.ocurrido_en < hasta)
+      AND (antes_de IS NULL OR r.id < antes_de)
+      AND NOT (coalesce(ocultar_mis_consultas, true)
+               AND r.perfil_id = yo
+               AND r.seccion IS NOT DISTINCT FROM 'ACTIVIDAD')
+    ORDER BY r.id DESC
+    LIMIT tamano;
+
+    GET DIAGNOSTICS resultados = ROW_COUNT;
+
+    INSERT INTO public.registro_actividad (perfil_id, accion, seccion, detalle)
+    VALUES (yo, 'CONSULTA', 'ACTIVIDAD', jsonb_strip_nulls(jsonb_build_object(
+        'vista', 'actividad', 'usuario', filtro_usuario, 'accion', filtro_accion,
+        'desde', desde, 'hasta', hasta, ..., 'antes_de', antes_de, 'tamano', tamano,
+        'resultados', resultados)));
+```
+
+1. **Todos los filtros son opcionales.** Cada condición tiene la forma "o no se ha pedido, o se cumple" (`filtro IS NULL OR ...`), así que sin filtros sale todo.
+2. **Los parámetros llevan prefijo** (`filtro_usuario`, `filtro_accion`). En `plpgsql`, las columnas de `RETURNS TABLE` funcionan como variables; si un parámetro se llamara `accion`, como una de ellas, Postgres no sabría a cuál se refiere. Por lo mismo, todas las columnas van con su alias (`r.`, `p.`).
+3. **Validaciones antes de leer:** la acción tiene que ser una de las que admite la tabla, la fecha de inicio tiene que ser anterior a la de fin y el tamaño de página tiene que estar entre 1 y 200, para que nadie pida el registro entero de una vez.
+4. **Una etiqueta legible.** `registro_id` solo se entiende junto a su sección: el 4 de Activos y el 4 de Fondos son cosas distintas. El `CASE` lo traduce al código del activo, al nombre del fondo o al tipo y el código del activo de un suministro ("LUZ · ACT-001").
+5. **Queda registrada, con los filtros.** `detalle` guarda los filtros usados, la página y cuántas filas devolvió (`GET DIAGNOSTICS`, como en la sección 16). `jsonb_strip_nulls` quita los filtros que no se usaron. Se apunta después de leer, como en la `036`.
+
+### 32.2. Páginas por cursor, no "saltar N filas"
+
+La forma habitual de paginar es "sáltate las 50 primeras y dame 50" (`OFFSET`). Aquí falla: **cada llamada escribe una fila nueva en el registro**. Al pedir la página 2, esa fila nueva ha empujado todo un puesto hacia abajo, y la última fila de la página 1 vuelve a salir al principio de la página 2.
+
+Con un **cursor**, la página pide "dame las 50 anteriores a la fila 169" (`antes_de`, el id de la última fila recibida). Lo que se añada arriba no mueve nada por debajo de la 169. Además, Postgres va directo a esa fila por la clave primaria, en vez de leer y descartar las que se salta.
+
+### 32.3. Las fechas y el desfase con UTC
+
+Supabase guarda y compara las fechas en UTC, y España va una hora por delante (dos en verano). Si la función recibiera un día (`date`), "el 16/11" empezaría a las 00:00 UTC, que es la 1:00 en España: se perdería lo ocurrido entre medianoche y la una.
+
+Por eso `desde` y `hasta` son `timestamptz` (fecha y hora con zona) y **los calcula la página**, que sabe en qué zona está el navegador. Para "hoy", manda la medianoche local de hoy y la de mañana. `hasta` no se incluye (`<`, no `<=`), así que "hasta la medianoche de mañana" es exactamente "todo hoy".
+
+### 32.4. La trampa del `NULL`
+
+La casilla "Ocultar mis consultas del registro" quita las filas que son del admin **y** de la sección `ACTIVIDAD`. Escrito con `=`, sería `NOT (... AND r.seccion = 'ACTIVIDAD')`. Pero un `LOGIN` no tiene sección (`NULL`), y en SQL `NULL = 'ACTIVIDAD'` no da falso: da **desconocido**. Un `NOT` de algo desconocido sigue siendo desconocido, y el `WHERE` solo deja pasar lo verdadero. Resultado: **los inicios de sesión del admin desaparecerían de la lista**, sin ningún error.
+
+`IS NOT DISTINCT FROM` compara tratando `NULL` como un valor más: `NULL IS NOT DISTINCT FROM 'ACTIVIDAD'` da falso, y la fila se queda. El filtro se aplica en la base de datos, y no en la página, para que una página de 50 filas no llegue con 30 escondidas.
+
+### 32.5. Cómo se probó
+
+Desde la consola del navegador, con una ayuda que pinta la respuesta en tabla y con la hora local.
+
+| # | Prueba | Resultado |
+|---|---|---|
+| 1 | Ejecutar la `037` | "Success" |
+| 2 | Admin, 5 filas | 175, 173, 172, 171, 169: se salta sus consultas del registro (170 y 174) y conserva sus `LOGIN` |
+| 3 | Página 2 (`antes_de` 169) | 168 a 164, sin repetir ninguna, aunque la llamada anterior había escrito la 176 |
+| 4 | Solo `MODIFICACION` | Las tres etiquetas: `ACT-006`, `LUZ · ACT-…` y el nombre de un fondo |
+| 5 | Hoy, en hora local | 5 filas, entre ellas la 169, la 171 y la 172, que en UTC son del 15/11 (23:18) y en España del 16/11 (0:18). La 168, del 15/11 en España, queda fuera |
+| 6 | Sin ocultar | Aparecen arriba sus consultas 176-179 |
+| 7 | Acción `BAILAR`, tamaño 500, fechas al revés | Los tres mensajes en castellano |
+| 8 | Solo el editor | 10 filas, todas suyas |
+| 9 | Editor | "Solo el administrador puede ver la actividad" |
+| 10 | Sin sesión | `401`: "permission denied for function actividad_admin" |
+| 11 | `detalle` de las consultas | 177 con `antes_de: 169`; 178 con `accion`; 179 con `desde: 2026-11-15T23:00:00+00:00` (la medianoche de España en UTC); 184 con `usuario`. Entre la 180 y la 183 solo hay dos `LOGIN`: los errores y los rechazos no dejan rastro |
+
 ---
 
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
