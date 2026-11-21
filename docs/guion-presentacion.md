@@ -3153,6 +3153,39 @@ DROP POLICY "Solo el admin lee el registro de actividad" ON public.registro_acti
 | 3 | Después: la misma lectura | `[]`, sin error, igual que en la sección 22 |
 | 4 | Volver a entrar, buscar, abrir y editar ACT-006, y mirar `actividad_admin` | 186 `LOGIN`, 187 `BUSQUEDA` "calle", 188 `CONSULTA` y 189 `MODIFICACION` de ACT-006: los disparadores y las ventanillas siguen funcionando |
 
+## 34. Segundo cierre del registro: la `039` retira los permisos de tabla
+
+```sql
+REVOKE ALL ON TABLE public.registro_actividad FROM anon, authenticated;
+```
+
+1. **Dos cerraduras.** Para que alguien de fuera lea una tabla tiene que pasar dos controles, uno detrás de otro:
+   - **Los permisos de tabla** (`GRANT`) dicen si un rol puede tocar la tabla.
+   - **Row Level Security** dice qué filas puede ver.
+
+   Supabase concede por defecto los permisos de tabla a `anon` (sin sesión) y a `authenticated` (con sesión). Por eso, hasta ahora, la única barrera del registro era la segunda: RLS activado y sin ninguna política desde la `038` (sección 33).
+2. **Por qué hace falta la primera.** Con una sola cerradura, basta un error para abrir el registro: desactivar RLS por despiste o crear una política mal escrita. Con las dos, haría falta romper las dos a la vez. Es defensa en profundidad: ninguna capa confía en que la otra no falle.
+3. **Por qué no rompe nada.** Los disparadores (`apuntar_actividad` y `apuntar_inicio_sesion`) y las ventanillas del panel (`usuarios_admin` y `actividad_admin`) son `SECURITY DEFINER`: se ejecutan con los permisos de su dueño, no con los del usuario que las llama, y al dueño el `REVOKE` no le afecta (punto 3 de la sección 33). Tampoco se toca `service_role`, que es lo que usa el panel de Supabase.
+4. **Lo que cambia por fuera.** La lectura directa ya no devuelve `[]`, sino el error `42501` "permission denied for table registro_actividad". Antes, la petición entraba en la tabla y RLS no le dejaba ver ninguna fila. Ahora se rechaza en la puerta, antes de mirar ninguna fila.
+5. **Por qué en una migración nueva y no cambiando la `038`.** La `038` ya estaba ejecutada y subida a GitHub. Las migraciones son un historial: lo que ya se aplicó no se reescribe, se añade un paso nuevo.
+
+### 34.1. Cómo se probó
+
+| # | Prueba | Resultado |
+|---|---|---|
+| 1 | Antes: lectura directa como admin | `[]`, estado 200 (lo frenaba RLS) |
+| 2 | Ejecutar la `039` | "Success. No rows returned" |
+| 3 | Permisos de la tabla (`information_schema.role_table_grants`) | Ya no aparecen ni `anon` ni `authenticated` |
+| 4 | Lectura directa como admin | `42501` "permission denied for table registro_actividad" |
+| 5 | Lectura directa sin sesión, con la clave pública | `401` / `42501`, el mismo mensaje |
+| 6 | Editar un activo con el editor y llamar a `actividad_admin` con su sesión | La edición funciona (el disparador escribe) y la ventanilla le responde `P0001` "Solo el administrador puede ver la actividad" |
+| 7 | Como admin: entrar, buscar, abrir fichas, editar, y llamar a `usuarios_admin` y `actividad_admin` | Los 3 usuarios, y en la actividad 194 `MODIFICACION` de ACT-004 del editor (hecha ya con la `039`), 195 `LOGIN`, 196 `BUSQUEDA` "calle", 197-200 `CONSULTA` y 201 `MODIFICACION` de ACT-010 del admin |
+
+### 34.2. Preguntas previsibles
+
+- **"Si ya estaba cerrado con RLS, ¿para qué otro cierre?"** Porque RLS se puede desactivar con una sola orden, o abrir con una política mal escrita. El segundo cierre hace que un error no baste para dejar el registro abierto.
+- **"¿Y las tablas de negocio?"** `fondos`, `activos` y `suministros` también dependen solo de RLS desde la `026` y la `030`. Admiten el mismo segundo cierre, que queda para la revisión de seguridad.
+
 ---
 
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*
