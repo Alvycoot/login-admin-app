@@ -3184,7 +3184,7 @@ REVOKE ALL ON TABLE public.registro_actividad FROM anon, authenticated;
 ### 34.2. Preguntas previsibles
 
 - **"Si ya estaba cerrado con RLS, ¿para qué otro cierre?"** Porque RLS se puede desactivar con una sola orden, o abrir con una política mal escrita. El segundo cierre hace que un error no baste para dejar el registro abierto.
-- **"¿Y las tablas de negocio?"** `fondos`, `activos` y `suministros` también dependen solo de RLS desde la `026` y la `030`. Admiten el mismo segundo cierre, que queda para la revisión de seguridad.
+- **"¿Y las tablas de negocio?"** `fondos`, `activos` y `suministros` también dependen solo de RLS desde la `026` y la `030`. Admiten el mismo segundo cierre, que se hizo en la revisión de seguridad con la `040` (sección 36).
 
 ## 35. El panel del admin — paso 4: la página, `admin.html`
 
@@ -3281,6 +3281,77 @@ Sin incidencias.
 - **"¿Qué pasa si un editor abre `admin.html` a mano?"** La página lo manda a Activos. Y si alguien se saltara la página y llamara a las funciones desde la consola, la base de datos le respondería "Solo el administrador puede ver la actividad". La seguridad no depende de la página.
 - **"¿Por qué cada vista deja una consulta en el registro?"** Porque el registro dice quién hizo qué, y el admin también hace cosas. Quien vigila también queda vigilado (sección 33). Para que esas consultas no tapen lo importante, salen apagadas o se ocultan.
 - **"¿Por qué no se actualiza solo?"** Cada carga queda apuntada. Actualizar cada pocos segundos llenaría el registro de consultas que nadie ha pedido. Se recarga al cambiar de vista o al aplicar los filtros.
+
+## 36. Revisión de seguridad y protección de datos
+
+Con la versión mínima completa (base de datos, pantallas de activos y panel del admin), se repasó todo el proyecto antes de presentarlo. Primero un diagnóstico sin tocar nada; después, solo se cambió lo que hacía falta.
+
+### 36.1. El diagnóstico
+
+| Qué se revisó | Cómo | Resultado |
+|---|---|---|
+| Claves fuera del repositorio | `.gitignore`, historial de `config.js` en todas las ramas y búsqueda de claves en los archivos versionados | `config.js` nunca ha entrado en Git. En el repositorio solo está `config.ejemplo.js`, una plantilla con huecos y sin ninguna clave |
+| Permisos de las funciones | Las 16 ventanillas de `public`, una a una en las migraciones | Las 16 son `SECURITY DEFINER`, con `search_path = ''`, `REVOKE … FROM public, anon` y `GRANT … TO authenticated`, y comprueban el permiso dentro |
+| Las mismas funciones, en vivo | Llamada sin sesión a cada una con la clave pública | Las 16 responden `401` / `42501`. Las de `privado` ni siquiera existen para la API (`PGRST202`) |
+| La página | Búsqueda de `innerHTML`, `insertAdjacentHTML`, `document.write`, `eval` y `.from(` en los `.js` | Ninguno. Todo el texto se pinta con `textContent` y la página nunca lee una tabla directamente: todo pasa por las ventanillas |
+| Las tablas, en vivo | Lectura directa sin sesión | `registro_actividad` ya daba `42501` (sección 34), pero `fondos`, `activos`, `suministros`, `perfiles` y `permisos_seccion` respondían `200 []` |
+
+Lo último era el único hueco: esas cinco tablas no filtraban nada, pero solo las protegía RLS. Es el mismo caso que la `039` cerró en el registro.
+
+**Qué es `search_path = ''`, y por qué importa en una función `SECURITY DEFINER`.** Cuando una función menciona `activos` sin decir de qué esquema, PostgreSQL la busca en los esquemas de su `search_path`. Si alguien consiguiera crear una tabla o función con el mismo nombre en un esquema que se mire antes, la función, que corre con los permisos de su dueño, usaría la suya. Con `search_path = ''` no se busca en ningún sitio: cada nombre lleva su esquema (`public.activos`, `privado.es_admin()`), y no hay nada que suplantar.
+
+### 36.2. La `040`: el segundo cierre de las demás tablas
+
+```sql
+BEGIN;
+REVOKE ALL ON TABLE public.fondos           FROM anon, authenticated;
+REVOKE ALL ON TABLE public.activos          FROM anon, authenticated;
+REVOKE ALL ON TABLE public.suministros      FROM anon, authenticated;
+REVOKE ALL ON TABLE public.perfiles         FROM anon, authenticated;
+REVOKE ALL ON TABLE public.permisos_seccion FROM anon, authenticated;
+COMMIT;
+```
+
+1. **Las dos cerraduras de la sección 34, ahora en todas las tablas.** Aunque alguien desactivara RLS o creara una política por error, sin permiso de tabla la petición se rechaza en la puerta.
+2. **Por qué no rompe nada.** La página no lee ninguna tabla directamente, y las ventanillas, los disparadores y las funciones de `privado` son `SECURITY DEFINER`: corren con los permisos de su dueño, al que el `REVOKE` no afecta.
+3. **`perfiles` y `permisos_seccion` también.** Las reglas de permisos (`es_admin`, `tiene_seccion`, `puede_escribir`) y `mi_perfil` las leen como su dueño. Desde fuera no hacía falta leerlas. Las dos políticas de lectura de `perfiles` (secciones 6 y 7) quedan sin uso: sin permiso de tabla nunca llegan a evaluarse. Se dejan como historia del proyecto.
+4. **Dentro de `BEGIN`/`COMMIT`:** si fallara una línea, no se aplicaría ninguna, y no quedaría la mitad de las tablas cerradas.
+
+### 36.3. Cómo se probó la `040`
+
+| # | Prueba | Resultado |
+|---|---|---|
+| 1 | Antes: lectura directa de `activos` como admin | `[]`, estado 200 (lo frenaba RLS) |
+| 2 | Ejecutar la `040` | "Success. No rows returned" |
+| 3 | Permisos de las cinco tablas (`information_schema.role_table_grants`) | Ninguna fila para `anon` ni `authenticated` |
+| 4 | Lectura directa de `activos` como admin | `403` / `42501` "permission denied for table activos" |
+| 5 | Lectura directa de las seis tablas sin sesión | Las seis, `401` / `42501` |
+| 6 | Uso normal: buscar, abrir y editar como admin y como editor, y el panel del admin | Todo funciona y el panel refleja los cambios |
+
+### 36.4. El aviso en el login: informar de que la actividad queda registrada
+
+```html
+<p class="aviso-registro">Al entrar, tu actividad (inicios de sesión, consultas, búsquedas y cambios) queda registrada.</p>
+```
+
+Hasta ahora solo lo decía la franja superior derecha del login ("Actividad registrada"), que se oculta en pantallas estrechas y queda lejos del formulario. La línea nueva va debajo del botón, en letra pequeña, y se ve en cualquier tamaño de pantalla.
+
+**El debate.** Se planteó no avisar, para observar cómo usa la gente la aplicación sin condicionarla. Se descartó porque, con usuarios reales, la ley obliga a informar:
+
+1. **RGPD, artículo 13.** El registro guarda quién hizo qué y cuándo: son datos personales. Quien los recoge tiene que informar en el momento de recogerlos de qué se guarda, para qué y durante cuánto tiempo.
+2. **En el trabajo, además, la LOPDGDD (artículo 87).** La empresa tiene que fijar los criterios de uso de los medios digitales e informar de ellos a los trabajadores.
+3. **Jurisprudencia: Bărbulescu contra Rumanía (TEDH, Gran Sala, 2017).** El trabajador tiene que saber de antemano que se le supervisa y con qué alcance. La vigilancia oculta solo se ha admitido como excepción, ante sospechas concretas de algo grave.
+
+**Matices:**
+- La ley obliga a informar, no a que el aviso esté en el login. Una política de uso o de privacidad aceptada al darse de alta también cumple. El aviso en pantalla es la forma más directa y la más fácil de demostrar.
+- Avisar no le quita valor al registro: es de **auditoría**, y una auditoría funciona en parte porque se sabe que existe. Disuade de mirar lo que no toca. Estudiar la conducta de los usuarios sería otra finalidad, y el RGPD no deja reutilizar los datos para fines distintos de aquel para el que se recogieron.
+- Hoy solo hay cuentas de prueba con datos ficticios. Con usuarios reales, el texto definitivo y la política completa los revisaría quien lleve la protección de datos.
+
+### 36.5. Preguntas previsibles
+
+- **"La clave de `config.js` se ve en el navegador, ¿no es un riesgo?"** Es la clave *publishable*, hecha para ir en el navegador: solo identifica el proyecto. Lo que protege los datos son los permisos de tabla, RLS y las ventanillas. La clave secreta, que se salta todo eso, no está en el proyecto.
+- **"¿Por qué no se cierran también las funciones de `privado`?"** Supabase no publica ese esquema en la API: llamarlas desde fuera da "no existe". Además, solo responden sobre el propio usuario. Quitarles el permiso por defecto sería una limpieza opcional, no un hueco.
+- **"¿Qué queda pendiente de seguridad para una versión real?"** Las altas de usuarios con servidor (Edge Function), la política de privacidad completa, un plazo de conservación del registro y el registro de `LOGOUT` y `ACCESO_DENEGADO`.
 
 ---
 

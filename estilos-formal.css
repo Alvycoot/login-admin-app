@@ -422,6 +422,7 @@ button { font: inherit; cursor: pointer; }
 .pagina-login .boton-relieve { width: 100%; height: auto; font-size: 1.1cqw; padding: 0.65cqw; clip-path: polygon(0 0, calc(100% - 0.8cqw) 0, 100% 0.8cqw, 100% 100%, 0 100%); }
 .pagina-login .boton-relieve:active { transform: translateY(0.18cqw); }
 .pagina-login #mensaje { margin-top: 1.2cqw; font-size: 0.78cqw; }
+.aviso-registro { margin: 1.2cqw 0 0; font-size: 0.66cqw; line-height: 1.45; color: var(--tinta-suave); text-align: center; text-wrap: balance; }
 
 /* Entrada escalonada (la animación "entrada" está al final, con las demás) */
 .formulario { animation: entrada 0.5s ease-out both; }
@@ -450,6 +451,7 @@ button { font: inherit; cursor: pointer; }
   .pagina-login .boton-relieve { font-size: 17px; padding: 11px; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%); }
   .pagina-login .boton-relieve:active { transform: translateY(3px); }
   .pagina-login #mensaje { margin-top: 16px; font-size: 14px; }
+  .aviso-registro { margin-top: 16px; font-size: 12px; }
 }
 
 /* ============================================================
