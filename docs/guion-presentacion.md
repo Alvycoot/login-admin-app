@@ -3186,6 +3186,102 @@ REVOKE ALL ON TABLE public.registro_actividad FROM anon, authenticated;
 - **"Si ya estaba cerrado con RLS, ¿para qué otro cierre?"** Porque RLS se puede desactivar con una sola orden, o abrir con una política mal escrita. El segundo cierre hace que un error no baste para dejar el registro abierto.
 - **"¿Y las tablas de negocio?"** `fondos`, `activos` y `suministros` también dependen solo de RLS desde la `026` y la `030`. Admiten el mismo segundo cierre, que queda para la revisión de seguridad.
 
+## 35. El panel del admin — paso 4: la página, `admin.html`
+
+Con la base de datos del panel terminada (secciones 31 a 34), falta la página. Se diseñó primero como maqueta, fuera del repositorio y con datos ficticios, y se pasó al repositorio cuando estuvo aprobada, igual que el login y activos (sección 26).
+
+La página tiene dos vistas, que se eligen con dos tarjetas como las del login:
+
+- **Usuarios** (`usuarios_admin`, sección 31): quién tiene acceso, con qué rol y secciones, su último inicio de sesión, su última actividad y cuántas acciones lleva. Pulsar una fila lleva a la actividad de esa persona, ya filtrada.
+- **Actividad** (`actividad_admin`, sección 32): la línea de tiempo del registro, agrupada por días, con filtros por usuario, acción y fechas. Cada acción tiene su color, y las modificaciones se despliegan con la tabla campo · antes → después. Las consultas del propio admin al registro salen apagadas, o se ocultan con la casilla "Ocultar mis consultas del registro".
+
+### 35.1. El control de entrada
+
+```js
+const perfil = perfiles[0];
+if (perfil.rol !== "ADMIN") {
+    window.location.replace("activos.html");
+    return;
+}
+```
+
+Es el mismo guardián de activos (sección 25), con un paso más: quien no es admin acaba en Activos. Igual que en Activos, la página está oculta hasta que termina la comprobación, así que nadie ve el panel ni un instante. **La página solo decide qué se enseña:** aunque alguien abriera el panel a la fuerza, `usuarios_admin` y `actividad_admin` comprueban en la base de datos que quien llama es el admin, y si no, responden con un error.
+
+### 35.2. Las fechas, en la hora de quien mira
+
+```js
+function medianocheLocal(texto, desplazamiento) {
+    const partes = texto.split("-").map(Number);
+    return new Date(partes[0], partes[1] - 1, partes[2] + desplazamiento).toISOString();
+}
+...
+if (filtros.desde) parametros.desde = medianocheLocal(filtros.desde, 0);
+if (filtros.hasta) parametros.hasta = medianocheLocal(filtros.hasta, 1);
+```
+
+1. **"Desde el 16 hasta el 16" significa el día 16 entero en España.** `desde` es la medianoche local del 16 y `hasta`, la del 17, que no se incluye. A la base de datos le llegan como momentos exactos: `2026-11-15T23:00Z` y `2026-11-16T23:00Z`.
+2. **Por qué momentos y no días.** Con días, la base de datos los cortaría en UTC, y lo que pasó entre las 00:00 y la 01:00 de aquí caería en el día anterior. Por eso `actividad_admin` recibe `timestamptz` (sección 32).
+3. **La línea de tiempo también agrupa en hora local.** Un evento de las 23:30 UTC del 15/11 sale en el día 16, a las 00:30.
+
+### 35.3. Decisiones de la página
+
+1. **Los filtros se aplican con un botón, no al cambiarlos.** Cada carga deja una `CONSULTA` en el registro, y aplicar cada cambio lo llenaría (es el mismo problema del buscador, sección 27). Si hay cambios sin aplicar, la página lo avisa.
+2. **El filtro de usuario reutiliza la lista de la vista Usuarios.** El panel se abre en Usuarios, así que la lista ya está cargada. Pedirla otra vez para el desplegable dejaría otra `CONSULTA` en el registro sin necesidad.
+3. **"Cargar más" usa el cursor de la sección 32:** pide los eventos anteriores al último recibido. Mientras carga, el botón se desactiva, para que un doble clic no pida ni apunte la misma página dos veces.
+4. **Fechas invertidas:** la página avisa sin llamar a la base de datos, que lo comprueba igualmente.
+5. **Detalles sin forma fija.** Se despliega todo evento que traiga detalle. Si es una modificación con `{antes, despues}` (sección 14), sale como tabla; si no, como lista de claves y valores. Así se ven también los `LOGIN` anotados de la sección 13, y las modificaciones anteriores a la `017`, sin detalle, no se despliegan. Si el registro ya no existe, se muestra su número.
+
+### 35.4. El panel espera a los datos, y el parpadeo del buscador
+
+En la maqueta, al cambiar de vista se veía un parpadeo. El panel aparecía con el contenido viejo mientras llegaban los datos, y al empezar la animación de entrada desaparecía de golpe y volvía a bajar.
+
+```css
+.bloque.esperando { opacity: 0; animation: none; }
+```
+
+**El arreglo:** mientras llegan los datos, el panel se queda invisible y quieto (`.esperando`). Cuando llegan, se pintan y el panel baja una sola vez. Cada carga lleva un número, y si el admin cambia de vista antes de que llegue la respuesta, esa respuesta se descarta. **Regla:** no relanzar una animación de entrada sobre contenido viejo.
+
+El buscador de Activos (sección 27) tenía el mismo problema y lleva el mismo arreglo. De paso se corrigió otro fallo: si se borraba el texto con una búsqueda en camino, al llegar los resultados tapaban el aviso "Busca por…". Ahora borrar descarta esa respuesta.
+
+### 35.5. El botón "Panel del admin", en la barra
+
+Activos tiene un botón "Panel del admin" que solo ve el admin. Primero iba en la cabecera, junto a "Cerrar sesión", pero no cabía en la franja central: a 1250 px de ancho tapaba los circuitos del dibujo, y en pantallas estrechas se salía de la pantalla. Se movió a la barra, a la derecha de "+ Nuevo activo". En el panel, "Ir a Activos" ocupa el mismo sitio, así que las dos páginas quedan simétricas.
+
+### 35.6. Cambios en el sistema de diseño
+
+- **Suministros pasa de `#74AEDD` a `#5B8CF2`, azul eléctrico.** El anterior estaba demasiado cerca del turquesa de Activos, y en el panel salen juntos. Es una variable de toda la aplicación, así que cambia también en el login y en Activos.
+- **Colores nuevos:** `--sec-actividad` (morado, para lo que viene del registro) y un color por acción (`--ac-login`, `--ac-busqueda`…), suaves y lejos de los de las secciones. En la línea de tiempo, el color de la fila lo lleva la acción. La sección va en gris, con su cuadradito de color y un destello que cruza la etiqueta de vez en cuando. Con "reducir movimiento", el destello no aparece.
+- **"Cerrar sesión" ya no se parte en dos líneas** cuando la cabecera va justa de ancho.
+
+### 35.7. Cómo se probó
+
+Primero, con una base de datos simulada que apuntaba cada llamada: 70 eventos y 4 usuarios, uno de ellos desactivado y sin estrenar. Un guion recorrió el panel solo, con 46 comprobaciones. Las más importantes:
+
+| Prueba | Resultado |
+|---|---|
+| Abrir Actividad sin filtros | Llega `{ocultar_mis_consultas: true, tamano: 50}`: 50 eventos y "Cargar más" |
+| "Cargar más" | Manda `antes_de`; 68 eventos en total (70 menos las 2 consultas propias), sin repetir días |
+| Filtrar del 16/11 al 16/11 | `desde` `2026-11-15T23:00Z`, `hasta` `2026-11-16T23:00Z`, y solo eventos del 16 |
+| Fechas invertidas | Aviso, sin llamada |
+| Pulsar la fila del editor | Actividad filtrada por su id, y todos los eventos son suyos |
+| Cambiar de vista muy deprisa | Solo se pinta la última vista pedida |
+| Abrir el panel como editor / sin sesión | A Activos / al login |
+| Buscador: borrar con una búsqueda en camino | Se queda el aviso, no los resultados |
+
+Además, capturas de cada vista, de un error y de pantalla estrecha, y medidas de la cabecera y la barra a cinco anchos.
+
+Después, **con Supabase, por Als:**
+- **Como admin:** el buscador ya no parpadea. Usuarios muestra los 3 usuarios, y la fila del editor lleva a su actividad. En Actividad funcionan los filtros, "Cargar más", el detalle de las modificaciones y las consultas propias apagadas.
+- **Como editor:** no ve el botón y consulta datos con normalidad. Al abrir `admin.html` a mano, acaba en Activos.
+
+Sin incidencias.
+
+### 35.8. Preguntas previsibles
+
+- **"¿Qué pasa si un editor abre `admin.html` a mano?"** La página lo manda a Activos. Y si alguien se saltara la página y llamara a las funciones desde la consola, la base de datos le respondería "Solo el administrador puede ver la actividad". La seguridad no depende de la página.
+- **"¿Por qué cada vista deja una consulta en el registro?"** Porque el registro dice quién hizo qué, y el admin también hace cosas. Quien vigila también queda vigilado (sección 33). Para que esas consultas no tapen lo importante, salen apagadas o se ocultan.
+- **"¿Por qué no se actualiza solo?"** Cada carga queda apuntada. Actualizar cada pocos segundos llenaría el registro de consultas que nadie ha pedido. Se recarga al cambiar de vista o al aplicar los filtros.
+
 ---
 
 *Pendiente como ampliación: `LOGOUT` y `ACCESO_DENEGADO`.*

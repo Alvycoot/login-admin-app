@@ -40,6 +40,8 @@ let puedeEscribirActivos = false;
 function mostrarPerfil(perfil) {
     puedeEscribirActivos = perfil.secciones_escritura.includes("ACTIVOS");
     document.getElementById("zona-crear").hidden = !puedeEscribirActivos;
+    // El acceso al panel solo se enseña al administrador (usuarios_admin y actividad_admin lo comprueban igualmente)
+    document.getElementById("boton-panel").hidden = perfil.rol !== "ADMIN";
 
     document.getElementById("nombre-usuario").textContent = perfil.nombre;
 
@@ -95,6 +97,8 @@ campoBusqueda.addEventListener("input", function () {
     const texto = campoBusqueda.value.trim();
     if (texto === "") {
         ultimaBuscada = null;
+        numeroBusqueda++;   // si había una búsqueda en camino, su respuesta ya no sustituirá a este aviso
+        mostrarResultadosSinAnimar();
         pintarEstado("Escribe al menos " + MIN_LETRAS + " letras, o pulsa Intro para buscar.", "Busca por código, dirección o municipio.");
     } else if (texto.length >= MIN_LETRAS) {
         temporizador = setTimeout(function () { buscar(texto); }, ESPERA_MS);
@@ -113,6 +117,7 @@ async function buscar(texto) {
     if (texto === ultimaBuscada) return;
     ultimaBuscada = texto;
     const esta = ++numeroBusqueda;
+    esperarResultados();
 
     const { data, error } = await clienteSupabase.rpc("buscar_activos", { texto: texto });
     if (esta !== numeroBusqueda) return;   // ya hay una búsqueda más reciente: esta respuesta llega tarde
@@ -154,10 +159,23 @@ async function buscar(texto) {
     desplegarResultados();
 }
 
+// Mientras llega la búsqueda, el panel de resultados espera invisible y quieto: así no se ven los resultados viejos
+// ni desaparecen de golpe al empezar la bajada (el parpadeo). Baja una sola vez, ya con los nuevos.
+function esperarResultados() {
+    const panel = document.getElementById("resultados");
+    panel.classList.remove("aparece-3", "despliega-abajo");
+    panel.classList.add("esperando");
+}
+
+// Al borrar el texto, el panel vuelve a la vista tal cual, sin bajar
+function mostrarResultadosSinAnimar() {
+    document.getElementById("resultados").classList.remove("esperando");
+}
+
 // Vuelve a lanzar la animación de entrada del panel de resultados (en cada búsqueda, completa)
 function desplegarResultados() {
     const panel = document.getElementById("resultados");
-    panel.classList.remove("aparece-3", "despliega-abajo");
+    panel.classList.remove("aparece-3", "despliega-abajo", "esperando");
     void panel.offsetWidth;   // obliga al navegador a "olvidar" la animación anterior antes de repetirla
     panel.classList.add("despliega-abajo");
 }
@@ -530,7 +548,9 @@ function envolverRelieve(boton) {
     return zona;
 }
 
-// 7. Cerrar sesión.
+// 7. Ir al panel del admin y cerrar sesión.
+document.getElementById("boton-panel").addEventListener("click", function () { window.location.href = "admin.html"; });
+
 document.getElementById("boton-salir").addEventListener("click", async function () {
     await clienteSupabase.auth.signOut();
     window.location.replace("login.html");

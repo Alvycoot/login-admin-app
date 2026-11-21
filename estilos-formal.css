@@ -30,10 +30,23 @@
   --venta: #74AEDD;
   --vendido: #B49BE0;
 
-  /* Secciones de la aplicación */
+  /* Secciones de la aplicación. Suministros era #74AEDD, demasiado cerca del turquesa de Activos (21/11).
+     Actividad es lo que viene del registro (panel del admin). */
   --sec-activos: #4FA3B4;
   --sec-fondos: #E3B354;
-  --sec-suministros: #74AEDD;
+  --sec-suministros: #5B8CF2;
+  --sec-actividad: #B49BE0;
+
+  /* Acciones del registro (panel del admin): un color suave por acción, repartidos por el círculo cromático
+     y lejos de los tonos de las secciones. El cierre de sesión es el inicio, más apagado: son pareja. */
+  --ac-login: #6FD3C9;          /* verde agua */
+  --ac-logout: #4E9C94;         /* verde agua apagado */
+  --ac-busqueda: #D4D86A;       /* lima */
+  --ac-consulta: #8FA8F5;       /* pervinca */
+  --ac-creacion: #9BD97A;       /* verde hierba */
+  --ac-modificacion: #E8A27C;   /* salmón */
+  --ac-borrado: #F08A8A;        /* rojo coral */
+  --ac-denegado: #E879C6;       /* magenta */
 
   color-scheme: dark;
 }
@@ -230,10 +243,12 @@ button { font: inherit; cursor: pointer; }
 .estado-en-venta { color: var(--venta); }
 .estado-vendido { color: var(--vendido); }
 
+/* --cs guarda el color de la sección para las etiquetas neutras del panel del admin (texto gris, cuadradito de color) */
 .pildora-seccion::before { content: ""; width: 7px; height: 7px; background: currentColor; }
-.seccion-activos { color: var(--sec-activos); }
-.seccion-fondos { color: var(--sec-fondos); }
-.seccion-suministros { color: var(--sec-suministros); }
+.seccion-activos { color: var(--sec-activos); --cs: var(--sec-activos); }
+.seccion-fondos { color: var(--sec-fondos); --cs: var(--sec-fondos); }
+.seccion-suministros { color: var(--sec-suministros); --cs: var(--sec-suministros); }
+.seccion-actividad { color: var(--sec-actividad); --cs: var(--sec-actividad); }
 
 /* ---------- Mensajes ---------- */
 
@@ -471,6 +486,8 @@ button { font: inherit; cursor: pointer; }
 
 .cabecera h1 { font-size: clamp(26px, 2.4vw, 38px); }
 .usuario { display: flex; align-items: center; gap: 12px; }
+/* Con poco ancho, el nombre puede ir en dos líneas, pero "Cerrar sesión" no se parte */
+.usuario .boton-linea { white-space: nowrap; }
 .usuario-nombre { font-weight: 600; }
 
 /* Zona de trabajo */
@@ -575,7 +592,8 @@ td.flecha { width: 30px; color: var(--tinta-apagada); text-align: right; }
 .acciones .zona-boton, .acciones .boton-linea { width: 140px; }
 .acciones .boton-relieve { width: 100%; }
 .boton-relieve:disabled { opacity: 0.6; cursor: progress; }
-.barra .zona-boton { margin-left: auto; }
+/* "+ Nuevo activo" y "Panel del admin", a la derecha de la barra */
+.barra-acciones { margin-left: auto; display: flex; align-items: center; gap: 14px; }
 
 .cerrar-ficha { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; display: grid; place-items: center; background: transparent; border: 0; color: var(--tinta-suave); font-size: 22px; line-height: 1; transition: color 0.25s ease; }
 .cerrar-ficha:focus-visible { outline: 1px solid var(--acento); color: var(--acento); }
@@ -611,6 +629,268 @@ td.flecha { width: 30px; color: var(--tinta-apagada); text-align: right; }
 }
 
 /* ============================================================
+   Panel del administrador
+   ============================================================ */
+
+/* ---------- Selector de vista: dos tarjetas como las del login ----------
+   Mismas esquinas que .bloque, icono de línea con brillo de neón y, al pasar el cursor,
+   un velo del color de la tarjeta (solo opacidad), el icono brilla y crece un 6 % y el título se ilumina.
+   La elegida conserva el velo y su contorno se enciende en su color. */
+.selector { display: grid; grid-template-columns: repeat(2, minmax(0, 360px)) 1fr; gap: 22px; align-items: stretch; }
+.selector .ir-activos { justify-self: end; align-self: center; }
+
+.opcion {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 22px 16px 14px;
+  text-align: left;
+  color: var(--tinta);
+  background: transparent;
+  border: 0;
+  --c1: 10px;
+  --c2: 22px;
+  --forma: polygon(var(--c1) 0, 100% 0, 100% calc(100% - var(--c2)), calc(100% - var(--c2)) 100%, 0 100%, 0 var(--c1));
+}
+
+.opcion::before, .opcion::after, .opcion .velo { content: ""; position: absolute; clip-path: var(--forma); pointer-events: none; }
+.opcion::before { inset: 0; z-index: -2; background: var(--linea-fuerte); opacity: 0.55; transition: opacity 0.25s ease, background-color 0.25s ease; }
+.opcion::after { inset: 1px; z-index: -1; background: var(--panel); }
+.opcion .velo { inset: 1px; z-index: 0; opacity: 0; transition: opacity 0.25s ease; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 16%, transparent), color-mix(in srgb, var(--c) 4%, transparent)); }
+.opcion svg, .opcion .texto { position: relative; z-index: 1; }
+
+.opcion svg {
+  width: 44px;
+  height: 44px;
+  justify-self: center;
+  fill: none;
+  stroke: var(--c);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--c) 70%, transparent));
+  transition: filter 0.25s ease, transform 0.25s ease;
+}
+
+.opcion h3 { font-size: 22px; color: var(--c); margin: 0 0 3px; transition: text-shadow 0.25s ease; }
+.opcion p { margin: 0; font-size: 13px; line-height: 1.4; color: var(--tinta-suave); }
+
+.opcion[aria-pressed="true"]::before { background: var(--c); opacity: 0.85; }
+.opcion[aria-pressed="true"] .velo { opacity: 0.7; }
+.opcion:focus-visible { outline: none; }
+.opcion:focus-visible .velo { opacity: 1; }
+
+.o-usuarios { --c: var(--acento); }
+.o-actividad { --c: var(--sec-actividad); }
+
+@media (hover: hover) {
+  .opcion:hover .velo { opacity: 1; }
+  .opcion:hover svg { filter: drop-shadow(0 0 7px var(--c)) drop-shadow(0 0 2px var(--c)); transform: scale(1.06); }
+  .opcion:hover h3 { text-shadow: 0 0 12px color-mix(in srgb, var(--c) 55%, transparent); }
+}
+
+/* ---------- Vista "Usuarios" ---------- */
+.tabla-desliza { overflow-x: auto; }
+.tabla-usuarios { min-width: 980px; }
+.tabla-usuarios td { vertical-align: middle; }
+.persona strong { display: block; font-weight: 600; white-space: nowrap; }
+.persona span { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--tinta-apagada); }
+.inactivo .persona strong { color: var(--tinta-apagada); }
+.tabla-usuarios .permisos { gap: 6px 10px; font-size: 12px; }
+.tabla-usuarios .permisos dd { flex-wrap: nowrap; }
+.momento { white-space: nowrap; }
+.momento small { display: block; font-size: 12px; color: var(--tinta-apagada); }
+.numero { font-family: "IBM Plex Mono", monospace; font-weight: 600; text-align: right; }
+th.numero { text-align: right; }
+
+.estado-activo { color: var(--exito); }
+.estado-inactivo { color: var(--tinta-apagada); }
+
+/* Las filas llevan a la actividad de esa persona: velo del acento en la fila entera, como en Activos */
+.tabla-usuarios tbody tr { cursor: pointer; background: linear-gradient(90deg, color-mix(in srgb, var(--acento) 14%, transparent), color-mix(in srgb, var(--acento) 4%, transparent)) no-repeat; background-size: 0 0; }
+.tabla-usuarios tbody tr:hover, .tabla-usuarios tbody tr:focus-visible { background-size: 100% 100%; }
+.tabla-usuarios tbody tr:focus-visible { outline: none; }
+
+/* "Sin dato" y "Nunca" en el panel (en la ficha de activos, .datos dd.sin-dato tiene su propio estilo) */
+.momento .sin-dato, .cambios .sin-dato, .filtros-usados .sin-dato { color: #6F7D83; font-style: italic; font-weight: 400; }
+
+/* ---------- Vista "Actividad": filtros ---------- */
+.filtros { display: grid; grid-template-columns: 1.3fr 1.1fr 0.85fr 0.85fr; gap: 14px 18px; align-items: end; }
+.filtros-pie { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.filtros-pie .botones { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.filtros-pie .zona-boton, .filtros-pie .boton-linea { width: 130px; }
+.filtros-pie .boton-relieve { width: 100%; }
+.sin-aplicar { font-size: 12px; color: var(--obra); }
+.filtros .mensaje-error { grid-column: 1 / -1; margin: 0; font-size: 14px; }
+
+/* La línea de tiempo va debajo de los filtros, dentro de la misma vista (el hueco de .trabajo no llega aquí) */
+.linea-bloque { margin-top: 22px; }
+
+/* Casilla con la esquina recortada (el estilo general de input no le sirve) */
+.casilla { display: inline-flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 600; color: var(--tinta-suave); cursor: pointer; }
+.casilla input {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  flex: none;
+  cursor: pointer;
+  background: var(--fondo) no-repeat center / 12px;
+  border: 1px solid var(--linea-fuerte);
+  clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 0 100%);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.casilla input:checked {
+  background-color: var(--acento);
+  border-color: var(--acento);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6l4.6-5.2' fill='none' stroke='%230D1418' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.casilla input:focus-visible { border-color: var(--acento); outline: 1px solid var(--acento); outline-offset: 2px; }
+
+/* ---------- Vista "Actividad": línea de tiempo ----------
+   Agrupada por día. Cada evento: hora · nodo (rombo del color de la acción) · texto · etiquetas.
+   La línea vertical pasa por los nodos (x = 12 de margen + 64 de la hora + 12, la mitad de la columna del nodo).
+   Al pasar el cursor, velo del color de la acción en la fila entera (como en Activos) y el nodo brilla
+   (un segundo rombo difuminado que solo cambia de opacidad). */
+.dia { margin: 0 0 6px; }
+.dia + .dia { margin-top: 18px; }
+.dia > .eyebrow { padding: 0 12px 8px; color: var(--tinta-suave); border-bottom: 1px solid var(--linea-fuerte); }
+.dia ol { list-style: none; margin: 0; padding: 0; }
+
+.evento { position: relative; border-bottom: 1px solid var(--linea-tenue); }
+.evento::before { content: ""; position: absolute; left: 88px; top: 0; bottom: 0; width: 1px; background: var(--linea); }
+
+/* El color de la fila (etiqueta, rombo y velo) lo lleva la acción */
+.a-login { --ca: var(--ac-login); }
+.a-logout { --ca: var(--ac-logout); }
+.a-busqueda { --ca: var(--ac-busqueda); }
+.a-consulta { --ca: var(--ac-consulta); }
+.a-creacion { --ca: var(--ac-creacion); }
+.a-modificacion { --ca: var(--ac-modificacion); }
+.a-borrado { --ca: var(--ac-borrado); }
+.a-acceso-denegado { --ca: var(--ac-denegado); }
+
+/* En la línea de tiempo, la sección va en texto neutro y conserva solo su cuadradito de color:
+   se sigue viendo, pero no compite con la acción */
+.pildora-seccion.neutra { position: relative; isolation: isolate; color: var(--tinta-suave); }
+.pildora-seccion.neutra::before { background: var(--cs); }
+
+/* Destello: una franja diagonal difuminada del color de la sección que cruza la etiqueta de izquierda a derecha,
+   como los haces de los circuitos: pasa (el primer 18 % del ciclo) y descansa el resto.
+   Cada fila va desfasada (retraso negativo según --i), así que nunca pasan todas a la vez.
+   Va por debajo del texto (z-index -1 dentro de la etiqueta) y solo se mueve con transform. */
+.pildora-seccion.neutra::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 0;
+  width: 45%;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--cs) 55%, transparent), transparent);
+  filter: blur(2px);
+  transform: translateX(-130%) skewX(-22deg);
+  animation: destello 6.5s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * -1.37s);
+}
+
+@keyframes destello {
+  0% { transform: translateX(-130%) skewX(-22deg); }
+  18% { transform: translateX(260%) skewX(-22deg); }
+  100% { transform: translateX(260%) skewX(-22deg); }
+}
+
+.evento-fila {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 64px 24px minmax(0, 1fr) auto 18px;
+  align-items: center;
+  column-gap: 0;
+  min-height: 46px;
+  padding: 8px 12px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  border: 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ca) 14%, transparent), color-mix(in srgb, var(--ca) 4%, transparent)) no-repeat;
+  background-size: 0 0;
+}
+button.evento-fila { cursor: pointer; }
+.evento-fila:hover, .evento-fila:focus-visible, .evento-fila[aria-expanded="true"] { background-size: 100% 100%; }
+.evento-fila:focus-visible { outline: none; }
+
+.hora { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--tinta-apagada); }
+
+.nodo { position: relative; justify-self: center; width: 9px; height: 9px; }
+.nodo::before, .nodo::after { content: ""; position: absolute; inset: 0; background: var(--ca); transform: rotate(45deg); }
+.nodo::after { inset: -3px; filter: blur(5px); opacity: 0; transition: opacity 0.25s ease; }
+.evento-fila:hover .nodo::after, .evento-fila:focus-visible .nodo::after, .evento-fila[aria-expanded="true"] .nodo::after { opacity: 1; }
+
+.evento-texto { padding: 0 14px 0 10px; min-width: 0; }
+.evento-texto strong { font-weight: 600; }
+.evento-texto .verbo { color: var(--tinta-suave); }
+/* El objeto (código, nombre, texto buscado) en blanco: si llevara el color de la sección,
+   la sección volvería a competir con la acción */
+.objeto { font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 600; white-space: nowrap; color: var(--tinta); }
+/* "la lista de usuarios" / "la línea de tiempo" son texto, no un código: sin letra de código */
+.objeto.de-actividad { font-family: inherit; font-size: inherit; }
+.evento-texto .extra { color: var(--tinta-apagada); font-size: 13px; }
+
+.evento-etiquetas { display: flex; gap: 6px; }
+.pildora.accion { color: var(--ca); }
+.chevron { justify-self: end; width: 14px; height: 14px; fill: none; stroke: var(--tinta-apagada); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.25s ease, stroke 0.25s ease; }
+.evento-fila[aria-expanded="true"] .chevron { transform: rotate(90deg); stroke: var(--ca); }
+
+/* Consultas del propio admin al registro: apagadas, para no confundirlas con la actividad de los demás */
+.evento.propia .evento-fila { opacity: 0.55; }
+.evento.propia .extra { font-style: italic; }
+
+/* Detalle desplegado: entra de izquierda a derecha, como los datos de la ficha */
+.evento-detalle { padding: 4px 12px 16px 112px; animation: entra-dato 0.4s ease-out both; }
+.cambios { width: auto; min-width: 420px; }
+/* Las filas de las tablas del bloque entran escalonadas; las del detalle no (ya entra el detalle entero) */
+.bloque .cambios tr { animation: none; }
+.cambios th { padding: 6px 14px 6px 0; }
+.cambios td { padding: 7px 14px 7px 0; border-bottom: 1px solid var(--linea-tenue); }
+.cambios .antes { color: var(--tinta-suave); }
+.cambios .despues { color: var(--ac-modificacion); font-weight: 600; }
+.cambios .flecha-cambio { color: var(--tinta-apagada); }
+.filtros-usados { display: grid; grid-template-columns: auto 1fr; gap: 5px 18px; margin: 0; font-size: 13px; }
+.filtros-usados dt { color: var(--tinta-apagada); font-weight: 600; }
+.filtros-usados dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Mientras llegan los datos, el panel espera invisible y quieto: así no se ve el contenido viejo
+   ni desaparece de golpe al empezar la bajada. Baja una sola vez, ya con los datos nuevos. */
+.bloque.esperando { opacity: 0; animation: none; }
+
+.mas { display: flex; justify-content: center; align-items: center; gap: 14px; padding-top: 18px; }
+
+/* Al cargar una página nueva, sus eventos entran uno a uno (los ya cargados no se mueven) */
+.evento.entra { animation: entra-fila 0.45s ease-out both; animation-delay: calc(0.35s + min(var(--i, 0), 10) * 0.08s); }
+.dia.entra > .eyebrow { animation: entra-fila 0.45s ease-out both; animation-delay: calc(0.3s + min(var(--i, 0), 10) * 0.08s); }
+
+@media (max-width: 1000px) {
+  .selector { grid-template-columns: 1fr 1fr; }
+  .selector .ir-activos { grid-column: 1 / -1; justify-self: start; }
+  .filtros { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 700px) {
+  .selector, .filtros { grid-template-columns: 1fr; }
+  .evento-fila { grid-template-columns: 52px 20px minmax(0, 1fr) 18px; }
+  .evento::before { left: 74px; }
+  .evento-etiquetas { grid-column: 3; grid-row: 2; padding: 6px 0 0 10px; }
+  .evento-detalle { padding-left: 24px; }
+  .cambios { min-width: 0; width: 100%; }
+}
+
+/* ============================================================
    Animaciones
    ============================================================ */
 
@@ -631,8 +911,8 @@ td.flecha { width: 30px; color: var(--tinta-apagada); text-align: right; }
     transition-duration: 0.01ms !important;
   }
 
-  /* Las animaciones se acortan, no se quitan: los circuitos, que se repiten sin fin, parpadearían.
-     Se ocultan, y el icono de las tarjetas del login no crece. */
-  .circuitos { display: none; }
+  /* Las animaciones se acortan, no se quitan: los circuitos y el destello de las etiquetas del panel,
+     que se repiten sin fin, parpadearían. Se ocultan, y el icono de las tarjetas del login no crece. */
+  .circuitos, .pildora-seccion.neutra::after { display: none; }
   .panel:hover svg { transform: none; }
 }

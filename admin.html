@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel del administrador</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Rajdhani:wght@600;700&family=Saira:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="estilos-formal.css">
+</head>
+<body class="pagina-app">
+  <!-- Oculto hasta comprobar la sesión y que el usuario es administrador. -->
+  <header class="cabecera" id="cabecera" hidden>
+    <div class="franja-circuitos">
+      <!-- Corriente por los circuitos: las mismas pistas que en el login, en el recorte superior de la imagen -->
+      <svg class="circuitos" viewBox="0 0 2752 240" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <mask id="mascara-cabecera" maskUnits="userSpaceOnUse" x="0" y="0" width="2752" height="240">
+            <image href="img/cabecera-mascara.png" x="0" y="0" width="2752" height="240"/>
+          </mask>
+          <g id="pistas-izq">
+            <path class="pista" d="M34 250V69L76 27H580" style="--fin: 1644; --dur: 11.4s; --d: 3.5s"/>
+            <path class="pista" d="M55 250V81L86 50H521" style="--fin: 1398; --dur: 9.9s; --d: 0s"/>
+            <path class="pista" d="M428 70L462 104H607L623 88H753" style="--fin: 1096; --dur: 7.8s; --d: 1.2s"/>
+            <path class="pista" d="M387 70L440 124H633" style="--fin: 1169; --dur: 8.3s; --d: 4.6s"/>
+            <path class="pista" d="M354 70L426 144H703" style="--fin: 980; --dur: 7s; --d: 2.4s"/>
+            <path class="pista" d="M296 50L409 165H680" style="--fin: 1182; --dur: 8.3s; --d: 5.8s"/>
+            <path class="pista" d="M284 124H340L413 198H753" style="--fin: 1400; --dur: 9.8s; --d: .6s"/>
+            <path class="pista" d="M285 154H369L413 198H753" style="--fin: 1536; --dur: 10.7s; --d: 6.9s"/>
+          </g>
+        </defs>
+        <g mask="url(#mascara-cabecera)">
+          <use href="#pistas-izq"/>
+          <use href="#pistas-izq" transform="translate(2752 0) scale(-1 1)" style="--extra: 2.9s"/>
+          <path class="pista" d="M316 70H565L606 27H2146L2187 70H2437" style="--fin: 2758; --dur: 18.9s; --d: 1.8s"/>
+        </g>
+      </svg>
+    </div>
+
+    <div class="cabecera-contenido aparece">
+      <div>
+        <p class="eyebrow">Panel del administrador</p>
+        <h1>Administración</h1>
+      </div>
+      <div class="usuario">
+        <span class="usuario-nombre" id="nombre-usuario"></span>
+        <span class="sombra-pildora"><span class="pildora" id="rol-usuario"></span></span>
+        <button type="button" class="boton-linea" id="boton-salir"><span class="borde-acento"></span>Cerrar sesión</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="trabajo" id="contenido" hidden>
+    <!-- Selector de vista. Cada vista llama a su ventanilla (usuarios_admin / actividad_admin) y deja una CONSULTA en el registro. -->
+    <nav class="selector aparece-2" aria-label="Vistas del panel">
+      <button type="button" class="opcion o-usuarios" id="opcion-usuarios" aria-pressed="true">
+        <span class="velo"></span>
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <circle cx="19" cy="16" r="6.5"/><path d="M6 41v-3.5C6 30.6 11.8 26 19 26s13 4.6 13 11.5V41"/>
+          <path d="M31 10.6a6.5 6.5 0 0 1 0 11.8"/><path d="M36 26.8c3.6 1.6 6 5 6 10.2V41"/>
+        </svg>
+        <span class="texto"><h3>Usuarios</h3><p>Quién tiene acceso, con qué rol y secciones, y cuándo entró por última vez.</p></span>
+      </button>
+      <button type="button" class="opcion o-actividad" id="opcion-actividad" aria-pressed="false">
+        <span class="velo"></span>
+        <!-- El mismo dibujo que la tarjeta "Registro de actividad" del login -->
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M8 5h19l6 6v30H8z"/><path d="M27 5v6h6"/>
+          <path d="M13 15h10M13 20h15M13 25h15M13 30h7"/>
+          <circle cx="34" cy="34" r="9" fill="#161E25"/><path d="M34 28.5V34l3.8 2.4"/>
+          <path d="M34 26.2v.9M41.8 34h-.9M34 41.8v-.9M26.2 34h.9"/>
+        </svg>
+        <span class="texto"><h3>Actividad</h3><p>Línea de tiempo del registro, con filtros por usuario, acción y fechas.</p></span>
+      </button>
+      <button type="button" class="boton-linea ir-activos" id="boton-activos"><span class="borde-acento"></span>Ir a Activos</button>
+    </nav>
+
+    <!-- Vista "Usuarios" (usuarios_admin) -->
+    <!-- Sin "aparece-3": al volver a enseñarse, esa animación se repetiría con el contenido viejo. La entrada la hace "despliega-abajo". -->
+    <section class="bloque esperando" id="vista-usuarios">
+      <div class="bloque-cabecera">
+        <div>
+          <p class="eyebrow">Usuarios</p>
+          <p class="meta" id="meta-usuarios" aria-live="polite"></p>
+        </div>
+        <span class="registrada" id="registrada-usuarios" title="Cada vez que abres esta lista queda apuntado en el registro de actividad" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Consulta registrada
+        </span>
+      </div>
+      <div class="tabla-desliza">
+        <table class="tabla-usuarios">
+          <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Permisos</th><th>Último inicio de sesión</th><th>Última actividad</th><th class="numero">Acciones</th><th></th></tr></thead>
+          <tbody id="filas-usuarios"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Vista "Actividad" (actividad_admin) -->
+    <div id="vista-actividad" hidden>
+      <!-- "aparece": los filtros entran suaves cada vez que se enseña la vista (la animación se repite al pasar de oculto a visible) -->
+      <form class="filtros aparece" id="form-filtros" novalidate>
+        <div class="campo">
+          <label for="f-usuario">Usuario</label>
+          <select id="f-usuario"><option value="">Todos</option></select>
+        </div>
+        <div class="campo">
+          <label for="f-accion">Acción</label>
+          <select id="f-accion"><option value="">Todas</option></select>
+        </div>
+        <div class="campo">
+          <label for="f-desde">Desde</label>
+          <input type="date" id="f-desde">
+        </div>
+        <div class="campo">
+          <label for="f-hasta">Hasta</label>
+          <input type="date" id="f-hasta">
+        </div>
+        <p class="mensaje-error" id="error-filtros" hidden></p>
+        <div class="filtros-pie">
+          <label class="casilla"><input type="checkbox" id="f-ocultar" checked> Ocultar mis consultas del registro</label>
+          <span class="sin-aplicar" id="sin-aplicar" hidden>Hay cambios sin aplicar</span>
+          <div class="botones">
+            <button type="button" class="boton-linea" id="boton-limpiar"><span class="borde-acento"></span>Limpiar</button>
+            <div class="zona-boton">
+              <span class="halo" aria-hidden="true"></span>
+              <div class="sombra"><button type="submit" class="boton-relieve">Aplicar</button></div>
+            </div>
+          </div>
+        </div>
+      </form>
+
+      <section class="bloque linea-bloque esperando" id="bloque-actividad">
+        <div class="bloque-cabecera">
+          <div>
+            <p class="eyebrow">Línea de tiempo</p>
+            <p class="meta" id="meta-actividad" aria-live="polite"></p>
+          </div>
+          <span class="registrada" id="registrada-actividad" title="Cada carga queda apuntada en el registro, con los filtros usados" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Consulta registrada
+          </span>
+        </div>
+        <div id="linea-tiempo"></div>
+        <div class="mas" id="zona-mas" hidden>
+          <button type="button" class="boton-linea" id="boton-mas"><span class="borde-acento"></span>Cargar más</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Plantilla de la flecha de los eventos que se despliegan (sin construir SVG a mano en JavaScript) -->
+  <template id="plantilla-chevron">
+    <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+  </template>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

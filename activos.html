@@ -69,10 +69,15 @@
         <dt>Escribes</dt>
         <dd id="secciones-escritura"></dd>
       </dl>
-      <!-- Solo para quien puede escribir activos (paso 4) -->
-      <div class="zona-boton" id="zona-crear" hidden>
-        <span class="halo" aria-hidden="true"></span>
-        <div class="sombra"><button type="button" class="boton-relieve" id="boton-crear">+ Nuevo activo</button></div>
+      <div class="barra-acciones">
+        <!-- Solo para quien puede escribir activos (paso 4) -->
+        <div class="zona-boton" id="zona-crear" hidden>
+          <span class="halo" aria-hidden="true"></span>
+          <div class="sombra"><button type="button" class="boton-relieve" id="boton-crear">+ Nuevo activo</button></div>
+        </div>
+        <!-- Solo para el administrador. En la barra y no en la cabecera, donde no cabe junto a "Cerrar sesión";
+             en el panel, "Ir a Activos" ocupa el mismo sitio -->
+        <button type="button" class="boton-linea" id="boton-panel" hidden><span class="borde-acento"></span>Panel del admin</button>
       </div>
     </section>
 
